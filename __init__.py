@@ -21,22 +21,21 @@
 bl_info = {
     "name": "Cycles Baker",
     "author": "Bartosz Styperek",
-    "version": (1, 0),
-    "blender": (2, 7, 6),
-    "location": "3d View -> Tool shelf -> Baking (tab)",
+    "version": (2, 0),
+    "blender": (2, 80, 0),
+    "location": "Npanel -> Tool shelf -> Baking (tab)",
     "description": "Addon for baking with Cycles.",
     "warning": "",
     "wiki_url": "",
-    "category": "Baking"}
+    "category": "Object"}
 
 import os
-from subprocess import check_output, CalledProcessError
 import bpy
-import bgl, bmesh
+import bgl
+import bmesh
 import aud
 from bpy.app.handlers import persistent
 from bpy.props import *
-from bpy.utils import register_class, unregister_class
 from mathutils import Matrix, Vector
 from datetime import datetime, timedelta
 
@@ -57,7 +56,7 @@ def draw_cage_callback(pairClass, context):
     objVector = Vector(obj.dimensions[:])
     objBBoxSize = objVector.length
     parentBakeJob = None
-    for bj in bpy.data.scenes['Scene'].Cycles_Baker_settings.bake_job_queue:
+    for bj in bpy.data.scenes['Scene'].cycles_baker_settings.bake_job_queue:
         for pair in bj.bake_pairs_list:
             if pair == pairClass:
                 parentBakeJob = bj
@@ -76,7 +75,7 @@ def draw_cage_callback(pairClass, context):
         for vert in bm.verts:
             if pairClass.front_distance_modulator_draw:
                 offset = vert.normal * frontRayDistanceMultiplier * frontDistance * objBBoxSize * 0.82  # 0,86 to match substance ray distance
-            vector3d = obj.matrix_world * (vert.co + offset)
+            vector3d = obj.matrix_world @ (vert.co + offset)
             transformedVerts.append(vector3d)
 
         bgl.glEnable(bgl.GL_DEPTH_TEST)
@@ -106,12 +105,12 @@ bm_old = [None]
 class CyclesBakerPreferences(bpy.types.AddonPreferences):
     bl_idname = 'cycles_baker'
 
-    Info = bpy.props.StringProperty(name="Info", description="", default="")
-    MAT_ID = bpy.props.StringProperty(name="Mat ID suffix", description="", default='id')
-    AO = bpy.props.StringProperty(name="AO suffix", description="", default='ao')
-    NORMAL = bpy.props.StringProperty(name="NORMAL suffix", description="", default="normal")
-    HEIGHT = bpy.props.StringProperty(name="Thickness map suffix", description="", default="height")
-    OPACITY = bpy.props.StringProperty(name="Opacity map suffix", description="", default="opacity")
+    Info: bpy.props.StringProperty(name="Info", description="", default="")
+    MAT_ID: bpy.props.StringProperty(name="Mat ID suffix", description="", default='id')
+    AO: bpy.props.StringProperty(name="AO suffix", description="", default='ao')
+    NORMAL: bpy.props.StringProperty(name="NORMAL suffix", description="", default="normal")
+    HEIGHT: bpy.props.StringProperty(name="Thickness map suffix", description="", default="height")
+    OPACITY: bpy.props.StringProperty(name="Opacity map suffix", description="", default="opacity")
 
     def draw(self, context):
         layout = self.layout
@@ -143,25 +142,29 @@ class CyclesBakePair(bpy.types.PropertyGroup):
         draw = self.front_distance_modulator_draw
         self.drawCage(draw)
 
-    activated = bpy.props.BoolProperty(name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
-    lowpoly = bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
-    highpoly = bpy.props.StringProperty(name="", description="Highpoly mesh", default="")
-    hp_obj_vs_group = bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GRP', '', 'Group', 'GROUP', 1)])
-    use_cage = bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False)
-    cage = bpy.props.StringProperty(name="", description="Cage mesh", default="")
-    front_distance_modulator = bpy.props.FloatProperty(name="Front distance modulator", description="", default=1.0, min=0, max=10, subtype='FACTOR')
-    front_distance_modulator_draw = bpy.props.BoolProperty(name="Draw Front distance", description="", default=False, update=DrawFrontRayDistance)
-    no_materials = bpy.props.BoolProperty(name="No Materials", default=False)
+    activated: bpy.props.BoolProperty(
+        name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
+    lowpoly: bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
+    highpoly: bpy.props.StringProperty(name="", description="Highpoly mesh", default="")
+    hp_obj_vs_group: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
+                                            ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GRP', '', 'Group', 'GROUP', 1)])
+    use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False)
+    cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
+    front_distance_modulator: bpy.props.FloatProperty(
+        name="Front distance modulator", description="", default=1.0, min=0, max=10, subtype='FACTOR')
+    front_distance_modulator_draw: bpy.props.BoolProperty(
+        name="Draw Front distance", description="", default=False, update=DrawFrontRayDistance)
+    no_materials: bpy.props.BoolProperty(name="No Materials", default=False)
 
 
-register_class(CyclesBakePair)
+
 
 
 # def getPasses(self,context):
 #     # __import__('code').interact(local={k: v for ns in (globals(), locals()) for k, v in ns.items()})
 #     items = []
-#     jQueIndex = self.path_from_id()[-20] #works only for this kind of -path_from_id- 'Cycles_Baker_settings.bake_job_queue[0].bake_pass_list[1]'
-#     CyclesBakeSettings = context.scene.Cycles_Baker_settings
+#     jQueIndex = self.path_from_id()[-20] #works only for this kind of -path_from_id- 'cycles_baker_settings.bake_job_queue[0].bake_pass_list[1]'
+#     CyclesBakeSettings = context.scene.cycles_baker_settings
 #     bj = CyclesBakeSettings.bake_job_queue[int(jQueIndex)]
 #     for passes in bj.bake_pass_list:
 #         items.append((passes.pass_name,passes.pass_name,""))
@@ -169,7 +172,7 @@ register_class(CyclesBakePair)
 
 class CyclesBakePass(bpy.types.PropertyGroup):
     def upSuffix(self, context):
-        addon_prefs = bpy.context.user_preferences.addons['cycles_baker'].preferences
+        addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
         if self.pass_name == "AO":
             self.suffix = addon_prefs.AO
         if self.pass_name == "NORMAL":
@@ -181,52 +184,53 @@ class CyclesBakePass(bpy.types.PropertyGroup):
         if self.pass_name == "OPACITY":
             self.suffix = addon_prefs.OPACITY
 
-    activated = bpy.props.BoolProperty(name="Activated", default=True)
+    activated: bpy.props.BoolProperty(name="Activated", default=True)
 
-    pass_name = bpy.props.EnumProperty(name="Pass", default="NORMAL",
-                                       items=(
+    pass_name: bpy.props.EnumProperty(name="Pass", default="NORMAL",
+                                      items=(
                                            ("MAT_ID", "Material ID", ""),
                                            ("AO", "Ambient Occlusion", ""),
                                            ("NORMAL", "Normal", ""),
                                            ("HEIGHT", "Height", ""),
                                            ("OPACITY", "Opacity mask", ""),
-                                       ), update=upSuffix)
+                                      ), update=upSuffix)
 
-    material_override = bpy.props.StringProperty(name="Material Override", description="", default="")
-    ao_distance = bpy.props.FloatProperty(name="Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
-    samples = bpy.props.IntProperty(name="Samples", description="", default=64, min=16, max=512)
-    suffix = bpy.props.StringProperty(name="Suffix", description="", default="")  # addon_prefs.NORMAL
+    material_override: bpy.props.StringProperty(name="Material Override", description="", default="")
+    ao_distance: bpy.props.FloatProperty(name="Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
+    samples: bpy.props.IntProperty(name="Samples", description="", default=64, min=16, max=512)
+    suffix: bpy.props.StringProperty(name="Suffix", description="", default="")  # addon_prefs.NORMAL
 
-    bake_all_highpoly = bpy.props.BoolProperty(name="Highpoly", default=False)
-    environment_obj_vs_group = bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GRP', '', 'Group', 'GROUP', 1)])
-    environment_group = bpy.props.StringProperty(name="", description="Additional environment occluding object(or group)", default="")
+    bake_all_highpoly: bpy.props.BoolProperty(name="Highpoly", default=False)
+    environment_obj_vs_group: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
+                                                     ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GRP', '', 'Group', 'GROUP', 1)])
+    environment_group: bpy.props.StringProperty(name="", description="Additional environment occluding object(or group)", default="")
 
-    # nm_pass_index = bpy.props.EnumProperty(name = "Normal map pass", items = getPasses  )
-    bit_depth = bpy.props.EnumProperty(name="Color Depth", description="", default="0",
-                                       items=(("0", "8 bit(default)", ""),
-                                              ("1", "16 bit", "")
-                                              ))
+    # nm_pass_index : bpy.props.EnumProperty(name = "Normal map pass", items = getPasses  )
+    bit_depth: bpy.props.EnumProperty(name="Color Depth", description="", default="0",
+                                      items=(("0", "8 bit(default)", ""),
+                                             ("1", "16 bit", "")
+                                             ))
 
-    nm_space = bpy.props.EnumProperty(name="Normal map space", default="TANGENT",
-                                      items=(("TANGENT", "Tangent Space", ""),
-                                             ("OBJECT", "World Space", "")))
-    nm_invert = bpy.props.EnumProperty(name="Invert green channel", default="POS_Y",
-                                       items=(("POS_Y", "OpenGL", "Blender Compatible"),
-                                              ("NEG_Y", "DirectX", "")))
+    nm_space: bpy.props.EnumProperty(name="Normal map space", default="TANGENT",
+                                     items=(("TANGENT", "Tangent Space", ""),
+                                            ("OBJECT", "World Space", "")))
+    nm_invert: bpy.props.EnumProperty(name="Invert green channel", default="POS_Y",
+                                      items=(("POS_Y", "OpenGL", "Blender Compatible"),
+                                             ("NEG_Y", "DirectX", "")))
 
-    position_mode = bpy.props.EnumProperty(name="Mode", default="0",
-                                           items=(("0", "All Axis", "bakes the position on the x,y, and z axis in the rgb channels"),
-                                                  ("1", "One Axis", "bakes a single axis in a greyscale image")))
+    position_mode: bpy.props.EnumProperty(name="Mode", default="0",
+                                          items=(("0", "All Axis", "bakes the position on the x,y, and z axis in the rgb channels"),
+                                                 ("1", "One Axis", "bakes a single axis in a greyscale image")))
 
-    position_mode_axis = bpy.props.EnumProperty(name="Axis", description="", default="1",
-                                                items=(("0", "X", ""),
-                                                       ("2", "Y", ""),
-                                                       ("1", "Z (default)", "Default")
-                                                       ))
-    ray_distrib = bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
-                                         items=(("0", "Uniform", ""),
-                                                ("1", "Cosine", "")
-                                                ))
+    position_mode_axis: bpy.props.EnumProperty(name="Axis", description="", default="1",
+                                               items=(("0", "X", ""),
+                                                      ("2", "Y", ""),
+                                                      ("1", "Z (default)", "Default")
+                                                      ))
+    ray_distrib: bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
+                                        items=(("0", "Uniform", ""),
+                                               ("1", "Cosine", "")
+                                               ))
 
     def props(self):
         props = set()
@@ -242,12 +246,18 @@ class CyclesBakePass(bpy.types.PropertyGroup):
         return props
 
     def get_subst_designer_pass_name(self):  # convert pass name to SD bake command
-        if self.pass_name == "MAT_ID": return "color-from-mesh"
-        if self.pass_name == "AO": return "ambient-occlusion-from-mesh"
-        if self.pass_name == "NORMAL": return "normal-from-mesh"
-        if self.pass_name == "UV": return "uv-map"
-        if self.pass_name == "HEIGHT": return "height-from-mesh"
-        if self.pass_name == "OPACITY": return "opacity-mask-from-mesh"
+        if self.pass_name == "MAT_ID":
+            return "color-from-mesh"
+        if self.pass_name == "AO":
+            return "ambient-occlusion-from-mesh"
+        if self.pass_name == "NORMAL":
+            return "normal-from-mesh"
+        if self.pass_name == "UV":
+            return "uv-map"
+        if self.pass_name == "HEIGHT":
+            return "height-from-mesh"
+        if self.pass_name == "OPACITY":
+            return "opacity-mask-from-mesh"
 
     def get_filename(self, bj):
         name = bj.name
@@ -256,8 +266,6 @@ class CyclesBakePass(bpy.types.PropertyGroup):
         return name
 
 
-register_class(CyclesBakePass)
-
 
 class CyclesBakeJob(bpy.types.PropertyGroup):
 
@@ -265,51 +273,48 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
         for pairs in self.bake_pairs_list:
             pairs.activated = self.refreshRender
 
-    activated = bpy.props.BoolProperty(name="Activated", description="Disable baking set of high-low pairs", default=True)
-    refreshRender = bpy.props.BoolProperty(name="Refresh Render", description="Render on/off helper button ", default=True, update=refreshRenderChange)
-    expand = bpy.props.BoolProperty(name="Expand", default=True)
-    bakeResolution = bpy.props.EnumProperty(name="Resolution", default="1024",
-                                            items=(("128", "128x128", ""),
-                                                   ("256", "256x256", ""),
-                                                   ("512", "512x512", ""),
-                                                   ("1024", "1024x1024", ""),
-                                                   ("2048", "2048x2048", ""),
-                                                   ("4096", "4096x4096", ""))
-                                            )
-    antialiasing = bpy.props.EnumProperty(name="Anti-aliasing", description="Anti-aliasing", default="1",
-                                          items=(("1", "None", ""),
-                                                 ("2", "2x", ""),
-                                                 ("4", "4x", "")))
+    activated: bpy.props.BoolProperty(name="Activated", description="Disable baking set of high-low pairs", default=True)
+    refreshRender: bpy.props.BoolProperty(name="Refresh Render", description="Render on/off helper button ",
+                                          default=True, update=refreshRenderChange)
+    expand: bpy.props.BoolProperty(name="Expand", default=True)
+    bakeResolution: bpy.props.EnumProperty(name="Resolution", default="1024",
+                                           items=(("128", "128x128", ""),
+                                                  ("256", "256x256", ""),
+                                                  ("512", "512x512", ""),
+                                                  ("1024", "1024x1024", ""),
+                                                  ("2048", "2048x2048", ""),
+                                                  ("4096", "4096x4096", ""))
+                                           )
+    antialiasing: bpy.props.EnumProperty(name="Anti-aliasing", description="Anti-aliasing", default="1",
+                                         items=(("1", "None", ""),
+                                                ("2", "2x", ""),
+                                                ("4", "4x", "")))
 
-    dilation = bpy.props.FloatProperty(name="Dilation", description="Width of the dilation post-process (in percent of image size). Default = 0.007.", default=0.007, min=0.00, max=0.01, subtype='PERCENTAGE')
+    dilation: bpy.props.FloatProperty(name="Dilation", description="Width of the dilation post-process (in percent of image size). Default = 0.007.",
+                                      default=0.007, min=0.00, max=0.01, subtype='PERCENTAGE')
 
-    output = bpy.props.StringProperty(name='File path',
-                                      description='The path of the output image.',
-                                      default='//textures/',
-                                      subtype='FILE_PATH')
-    name = bpy.props.StringProperty(name='name', description="Output texture name", default='bake')
+    output: bpy.props.StringProperty(name='File path',
+                                     description='The path of the output image.',
+                                     default='//textures/',
+                                     subtype='FILE_PATH')
+    name: bpy.props.StringProperty(name='name', description="Output texture name", default='bake')
 
-    relativeToBbox = bpy.props.BoolProperty(name="Relative to bbox", description="Interpret the max distances as a factor of the mesh bounding box.", default=True)
-    frontDistance = bpy.props.FloatProperty(name="Max frontal distance", description="Max ray scan distance outside lowpoly", default=0.02, min=0.0, max=1.0, precision=3)
+    relativeToBbox: bpy.props.BoolProperty(
+        name="Relative to bbox", description="Interpret the max distances as a factor of the mesh bounding box.", default=True)
+    frontDistance: bpy.props.FloatProperty(name="Max frontal distance",
+                                           description="Max ray scan distance outside lowpoly", default=0.02, min=0.0, max=1.0, precision=3)
 
-    bake_pairs_list = bpy.props.CollectionProperty(type=CyclesBakePair)
-    bake_pass_list = bpy.props.CollectionProperty(type=CyclesBakePass)
+    bake_pairs_list: bpy.props.CollectionProperty(type=CyclesBakePair)
+    bake_pass_list: bpy.props.CollectionProperty(type=CyclesBakePass)
 
     def get_filepath(self):
         outPath = bpy.path.abspath(self.output)
         return outPath  # [:-1]remove last \ - this is how sd works
 
 
-register_class(CyclesBakeJob)
-
 
 class CyclesBakeSettings(bpy.types.PropertyGroup):
-    bl_idname = __name__
-    bake_job_queue = bpy.props.CollectionProperty(type=CyclesBakeJob)
-
-
-register_class(CyclesBakeSettings)
-bpy.types.Scene.Cycles_Baker_settings = bpy.props.PointerProperty(type=CyclesBakeSettings)
+    bake_job_queue: bpy.props.CollectionProperty(type=CyclesBakeJob)
 
 
 def convertCurveToGeo(curve, scene):
@@ -322,22 +327,22 @@ def convertCurveToGeo(curve, scene):
     return None
 
 
-class CyclesBakeOp(bpy.types.Operator):
+class CB_OT_CyclesBakeOp(bpy.types.Operator):
     bl_idname = "cycles.bake"
     bl_label = "Cycles Bake"
     bl_options = {'REGISTER', 'UNDO'}
 
-    job_index = bpy.props.IntProperty()
-    pass_index = bpy.props.IntProperty()
-    pair_index = bpy.props.IntProperty()
-    bake_all = bpy.props.BoolProperty()
-    bake_target = bpy.props.StringProperty()
+    job_index: bpy.props.IntProperty()
+    pass_index: bpy.props.IntProperty()
+    pair_index: bpy.props.IntProperty()
+    bake_all: bpy.props.BoolProperty()
+    bake_target: bpy.props.StringProperty()
     normalPassIndex = 99  # helper for curvature map - bake curv ony if curvPassIndex>normalPassIndex
     startTime = None
     baseMaterialList = []
 
     def create_temp_node(self):
-        CyclesBakeSettings = bpy.context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         pair = CyclesBakeSettings.bake_job_queue[self.job_index].bake_pairs_list[self.pair_index]
         # add an image node to the lowpoly model's material
         bake_mat = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].active_material
@@ -355,7 +360,7 @@ class CyclesBakeOp(bpy.types.Operator):
         bake_mat.node_tree.nodes.active = imgnode
 
     def create_render_target(self):
-        CyclesBakeSettings = bpy.context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
         aa = int(bj.antialiasing)
         bpy.ops.image.new(name="MDtarget", width=int(bj.bakeResolution)*aa,
@@ -384,7 +389,7 @@ class CyclesBakeOp(bpy.types.Operator):
                     [material.diffuse_color[0], material.diffuse_color[1], material.diffuse_color[2], 1]
 
     def compo_nodes_mergePassImgs(self):
-        CyclesBakeSettings = bpy.context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
         bakepass = bj.bake_pass_list[self.pass_index]
         # job = mds.bake_job_queue[self.job]
@@ -398,7 +403,6 @@ class CyclesBakeOp(bpy.types.Operator):
             aa = int(bj.antialiasing)  # revert image size to original size for next bake
             targetimage.scale(int(bj.bakeResolution) * aa, int(bj.bakeResolution) * aa)
 
-
     def copyModifierParentsSetup(self, groupObjs, CloneObjPointer):  # same as GroupPro.py
         # copy modifier obj, parents etc from source do clones
         import copy
@@ -410,24 +414,28 @@ class CyclesBakeOp(bpy.types.Operator):
                     backupMatrixWorld = copy.deepcopy(CloneObjPointer[groupObj.name].matrix_world)
                     backupMatrixParentInv = copy.deepcopy(CloneObjPointer[groupObj.name].matrix_parent_inverse)
                     CloneObjPointer[groupObj.name].parent = CloneObjPointer[groupObj.parent.name]  # set parent to new child
-                    CloneObjPointer[groupObj.name].matrix_parent_inverse = backupMatrixParentInv  # this is needed cos changing parent may zero MatrixParentInverted. So just restore it
+                    # this is needed cos changing parent may zero MatrixParentInverted. So just restore it
+                    CloneObjPointer[groupObj.name].matrix_parent_inverse = backupMatrixParentInv
                     CloneObjPointer[groupObj.name].matrix_world = backupMatrixWorld
             for index, modifier in enumerate(groupObj.modifiers):
                 if hasattr(modifier, 'object'):
                     if modifier.object and modifier.object.name in CloneObjPointer.keys():
-                        CloneObjPointer[groupObj.name].modifiers[index].object = CloneObjPointer[modifier.object.name]  # set modifier to target
+                        # set modifier to target
+                        CloneObjPointer[groupObj.name].modifiers[index].object = CloneObjPointer[modifier.object.name]
                 if hasattr(modifier, 'offset_object'):  # for array
                     if modifier.offset_object and modifier.offset_object.name in CloneObjPointer.keys():
-                        CloneObjPointer[groupObj.name].modifiers[index].offset_object = CloneObjPointer[modifier.offset_object.name]  # set modifier to target
+                        # set modifier to target
+                        CloneObjPointer[groupObj.name].modifiers[index].offset_object = CloneObjPointer[modifier.offset_object.name]
                 if hasattr(modifier, 'origin'):  # for simple deform
                     if modifier.origin and modifier.origin.name in CloneObjPointer.keys():
-                        CloneObjPointer[groupObj.name].modifiers[index].origin = CloneObjPointer[modifier.origin.name]  # set modifier to target
+                        # set modifier to target
+                        CloneObjPointer[groupObj.name].modifiers[index].origin = CloneObjPointer[modifier.origin.name]
 
     def make_duplicates_real(self, empty, oldMatrix, highPolyGroupName, depth=0):
-        new_matrix = oldMatrix * empty.matrix_world  # to store combination of parent groups matrices
+        new_matrix = oldMatrix @ empty.matrix_world  # to store combination of parent collections matrices
         CloneObjPointer = {}
-        for dupObj in empty.dupli_group.objects:
-            if dupObj.type == 'EMPTY' and dupObj.dupli_group:
+        for dupObj in empty.instance_collection.objects:
+            if dupObj.type == 'EMPTY' and dupObj.instance_collection:
                 self.make_duplicates_real(dupObj, new_matrix, highPolyGroupName, depth + 1)
             else:
                 copyGroupObj = dupObj.copy()
@@ -436,30 +444,30 @@ class CyclesBakeOp(bpy.types.Operator):
                 if copyGroupObj.type == 'CURVE':  # try clone and convert curve to mesh.
                     curveMeshClone = convertCurveToGeo(copyGroupObj, bpy.data.scenes['MD_TEMP'])
                     if curveMeshClone is not None:
-                        bpy.data.groups[highPolyGroupName].objects.link(curveMeshClone)
-                        curveMeshClone.matrix_world = new_matrix * curveMeshClone.matrix_world
-                    # copyGroupObj.select = True
+                        bpy.data.collections[highPolyGroupName].objects.link(curveMeshClone)
+                        curveMeshClone.matrix_world = new_matrix @ curveMeshClone.matrix_world
+                    # copyGroupObj.select_set( True
 
-                bpy.data.scenes["MD_TEMP"].objects.link(copyGroupObj)
+                bpy.data.scenes["MD_TEMP"].collection.objects.link(copyGroupObj)
                 if not copyGroupObj.hide_render:  # to not add hidden render obj's to export
-                    bpy.data.groups[highPolyGroupName].objects.link(copyGroupObj)
-                copyGroupObj.matrix_world = new_matrix * copyGroupObj.matrix_world
-        self.copyModifierParentsSetup(empty.dupli_group.objects, CloneObjPointer)
+                    bpy.data.collections[highPolyGroupName].objects.link(copyGroupObj)
+                copyGroupObj.matrix_world = new_matrix @ copyGroupObj.matrix_world
+        self.copyModifierParentsSetup(empty.instance_collection.objects, CloneObjPointer)
         if depth == 0:  # remove only first empty, cos deeper empties are still used in other groupInstances on scene.
-            bpy.data.scenes["MD_TEMP"].objects.unlink(empty)  # remove empty from baking
+            # bpy.data.scenes["MD_TEMP"].collection.objects.unlink(empty)  # remove empty from baking
             empty.user_clear()
             bpy.data.objects.remove(empty)
 
     def scene_copy(self):
 
-        CyclesBakeSettings = bpy.context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
 
         # store the original names of things in the scene so we can easily identify them later
         for object in bpy.context.scene.objects:
             object.sd_orig_name = object.name
 
-        for group in bpy.data.groups:
+        for group in bpy.data.collections:
             group.sd_orig_name = group.name
         for world in bpy.data.worlds:
             world.sd_orig_name = world.name
@@ -470,8 +478,6 @@ class CyclesBakeOp(bpy.types.Operator):
         # duplicate the scene
         bpy.ops.scene.new(type='FULL_COPY')
         bpy.context.scene.name = "MD_TEMP"
-        if bpy.data.scenes['MD_TEMP'].render.engine == 'CYCLES':  # cos fbx mat color is ok only when rendre in set to internal
-            bpy.data.scenes['MD_TEMP'].render.engine = 'BLENDER_RENDER'
         # tag the copied object names with _MD_TMP
         for object in bpy.data.scenes["MD_TEMP"].objects:
             object.name = object.sd_orig_name + "_MD_TMP"
@@ -485,7 +491,7 @@ class CyclesBakeOp(bpy.types.Operator):
             if material.name != material.sd_orig_name:
                 material.name = material.sd_orig_name + "_MD_TMP"
         # error before here
-        for group in bpy.data.groups:
+        for group in bpy.data.collections:
             if group.name != group.sd_orig_name:
                 group.name = group.sd_orig_name + "_MD_TMP"
         for object in bpy.data.scenes["MD_TEMP"].objects:
@@ -498,36 +504,40 @@ class CyclesBakeOp(bpy.types.Operator):
         for pair in bj.bake_pairs_list:
             if pair.activated:
                 if pair.hp_obj_vs_group == "OBJ":  # create group for hipoly
-                    bpy.data.groups.new(pair.highpoly + "_MD_TMP")
+                    bpy.data.collections.new(pair.highpoly + "_MD_TMP")
 
                 # link obj's from group pro to hipoly group if obj is member of hipoly bake group
                 if pair.hp_obj_vs_group == "GRP":
-                    for obj in bpy.data.groups[pair.highpoly + "_MD_TMP"].objects:  # search for empties in hipoly group and convert them to geo
+                    # search for empties in hipoly group and convert them to geo
+                    for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
                         if obj.type == 'CURVE':
                             ObjMeshFromCurve = convertCurveToGeo(obj, bpy.data.scenes['MD_TEMP'])
                             if ObjMeshFromCurve is not None:
-                                bpy.data.groups[pair.highpoly + "_MD_TMP"].objects.link(ObjMeshFromCurve)
-                        if obj.type == 'EMPTY' and obj.dupli_group:
-                            self.make_duplicates_real(obj, Matrix.Identity(4), pair.highpoly + "_MD_TMP")  # create and add obj to hipolyGroupName
+                                bpy.data.collections[pair.highpoly + "_MD_TMP"].objects.link(ObjMeshFromCurve)
+                        if obj.type == 'EMPTY' and obj.instance_collection:
+                            self.make_duplicates_real(obj, Matrix.Identity(4), pair.highpoly +
+                                                      "_MD_TMP")  # create and add obj to hipolyGroupName
                 else:
                     hipolyTemp = bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"]
-                    if hipolyTemp.type == 'EMPTY' and hipolyTemp.dupli_group:
-                        self.make_duplicates_real(hipolyTemp, Matrix.Identity(4), pair.highpoly + "_MD_TMP")  # TODO: whant if there is curve in group?
+                    if hipolyTemp.type == 'EMPTY' and hipolyTemp.instance_collection:
+                        self.make_duplicates_real(hipolyTemp, Matrix.Identity(4), pair.highpoly +
+                                                  "_MD_TMP")  # TODO: whant if there is curve in group?
                     else:
                         if hipolyTemp.type == 'CURVE':  # try clone, convert to mesh, and add to highpoly if possible
                             ObjMeshFromCurve = convertCurveToGeo(hipolyTemp, bpy.data.scenes['MD_TEMP'])
                             if ObjMeshFromCurve is not None:
-                                bpy.data.groups[pair.highpoly + "_MD_TMP"].objects.link(ObjMeshFromCurve)
+                                bpy.data.collections[pair.highpoly + "_MD_TMP"].objects.link(ObjMeshFromCurve)
                         isAlreadyInHP_Group = False
-                        for objGroup in bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"].users_group:
-                            if objGroup == bpy.data.groups[pair.highpoly + "_MD_TMP"]:
+                        for objGroup in bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"].users_collection:
+                            if objGroup == bpy.data.collections[pair.highpoly + "_MD_TMP"]:
                                 isAlreadyInHP_Group = True
                                 break
                         if not isAlreadyInHP_Group:
-                            bpy.data.groups[pair.highpoly + "_MD_TMP"].objects.link(bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"])
+                            bpy.data.collections[pair.highpoly +
+                                            "_MD_TMP"].objects.link(bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"])
 
     def select_hi_low(self):
-        CyclesBakeSettings = bpy.context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
 
         pair = bj.bake_pairs_list[self.pair_index]
@@ -538,57 +548,58 @@ class CyclesBakeOp(bpy.types.Operator):
                 obj.hide_render = True
             # make selections, ensure visibility
             enviroGroupName = ''
-            bpy.data.scenes["MD_TEMP"].layers[0] = True
+            # bpy.data.scenes["MD_TEMP"].layers[0] = True
             bpy.ops.object.select_all(action='DESELECT')
             for bakepass in bj.bake_pass_list:
                 if bakepass.environment_group != "":  # bake enviro objects too
                     enviroGroupName = bakepass.environment_group
                     if bakepass.environment_obj_vs_group == "GRP":
-                        for obj in bpy.data.groups[bakepass.environment_group + "_MD_TMP"].objects:
+                        for obj in bpy.data.collections[bakepass.environment_group + "_MD_TMP"].objects:
                             obj.hide_render = False
-                            obj.select = True
-                            obj.layers[0] = True
+                            obj.select_set(True)
+                            # obj.layers[0] = True
                     else:
                         EnviroObj = bpy.data.scenes["MD_TEMP"].objects[bakepass.environment_group + "_MD_TMP"]
                         EnviroObj.hide_render = False
-                        EnviroObj.select = True
-                        EnviroObj.layers[0] = True
+                        EnviroObj.select_set( True)
+                        # EnviroObj.layers[0] = True
 
             print("selected  enviro group " + pair.lowpoly)
 
             # highpoly export
             print("exporting pair " + pair.lowpoly)
-            bpy.data.scenes["MD_TEMP"].layers[0] = True
+            # bpy.data.scenes["MD_TEMP"].layers[0] = True
 
             # make selections, ensure visibility
             # bpy.ops.object.select_all(action='DESELECT')
             if pair.highpoly != "":
-                for object in bpy.data.groups[pair.highpoly + "_MD_TMP"].objects:
-                    object.hide_render = False
-                    object.layers[0] = True
-                    object.select = True
+                for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
+                    obj.hide_render = False
+                    # obj.layers[0] = True
+                    obj.select_set( True)
 
             # Lowpoly export
             print("exporting pair " + pair.highpoly)
             # lowpoly visibility
-            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide = False
+            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_viewport = False
             bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_select = False
             bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_render = False
-            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].layers[0] = True
-            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].select = True
-            bpy.data.scenes["MD_TEMP"].objects.active = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
+            # bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].layers[0] = True
+            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].select_set( True)
+            # bpy.data.scenes["MD_TEMP"].objects.active = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
+            bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
 
             # cage visibility
-            if pair.use_cage and pair.cage != "": 
+            if pair.use_cage and pair.cage != "":
                 bpy.ops.object.select_all(action='DESELECT')
-                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide = False
+                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_viewport = False
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_select = False
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_render = False
-                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].layers[0] = True
-                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].select = True
+                # bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].layers[0] = True
+                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].select_set( True)
 
     def bake_pair_pass(self):
-        CyclesBakeSettings = bpy.context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         bakepass = CyclesBakeSettings.bake_job_queue[self.job_index].bake_pass_list[self.pass_index]
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
         pair = bj.bake_pairs_list[self.pair_index]
@@ -628,48 +639,50 @@ class CyclesBakeOp(bpy.types.Operator):
 
             print("Baking set " + pair.lowpoly + " " + bakepass.pass_name + "  time: " + str(datetime.now() - self.startTime))
 
-    def remove_object(self, object):
-        if bpy.data.objects[object.name]:
-            if object.type == "MESH":
-                bpy.data.scenes["MD_TEMP"].objects.unlink(object)
-                mesh_to_remove = object.data
-                object.user_clear()
-                bpy.data.objects.remove(object)
+    def remove_object(self, obj):
+        if bpy.data.objects[obj.name]:
+            if obj.type == "MESH":
+                if obj.name in bpy.data.scenes["MD_TEMP"].collection.objects.keys():
+                    bpy.data.scenes["MD_TEMP"].collection.objects.unlink(obj) #TODO: remake this to remove from master cool??
+                mesh_to_remove = obj.data
+                obj.user_clear()
+                bpy.data.objects.remove(obj)
                 if mesh_to_remove.users == 0:  # if multi user skip removing mesh
                     bpy.data.meshes.remove(mesh_to_remove)
             else:
-                bpy.data.scenes["MD_TEMP"].objects.unlink(object)
-                object.user_clear()
-                bpy.data.objects.remove(object)
+                if obj.name in bpy.data.scenes["MD_TEMP"].collection.objects.keys():
+                    bpy.data.scenes["MD_TEMP"].collection.objects.unlink(obj)
+                obj.user_clear()
+                bpy.data.objects.remove(obj)
 
     def cleanup(self):
 
-        for object in bpy.data.scenes["MD_TEMP"].objects:
-            self.remove_object(object)
+        for obj in bpy.data.scenes["MD_TEMP"].objects:
+            self.remove_object(obj)
 
         for material in bpy.data.materials:
             if material.name.endswith("_MD_TMP"):
                 bpy.data.materials.remove(material, do_unlink=True)
 
-        for group in bpy.data.groups:
+        for group in bpy.data.collections:
             if group.name.endswith("_MD_TMP"):
-                bpy.data.groups.remove(group, do_unlink=True)
+                bpy.data.collections.remove(group, do_unlink=True)
 
         bpy.ops.scene.delete()
 
     # empty mat search function
     def is_empty_mat(self, context):
-        CyclesBakeSettings = bpy.context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         for bj in CyclesBakeSettings.bake_job_queue:
             for pair in bj.bake_pairs_list:
                 if pair.activated == True:
                     if pair.highpoly != "":
                         if pair.hp_obj_vs_group == "GRP":
-                            for object in bpy.data.groups[pair.highpoly].objects:
-                                if object.type == 'EMPTY' and object.dupli_group:
+                            for obj in bpy.data.collections[pair.highpoly].objects:
+                                if obj.type == 'EMPTY' and obj.instance_collection:
                                     continue
-                                if object.type == "MESH" and (len(object.material_slots) == 0 or object.material_slots[0].material is None):
-                                    self.report({'INFO'}, 'Object: ' + object.name + ' has no Material!')
+                                if obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None):
+                                    self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material!')
                                     return True
                         else:
                             try:
@@ -678,13 +691,14 @@ class CyclesBakeOp(bpy.types.Operator):
                                 print("No highpoly " + pair.highpoly + " object on scene found! Cancelling")
                                 pair.activated = False
                                 continue
-                            if hipolyObj.type == 'EMPTY' and hipolyObj.dupli_group:
+                            if hipolyObj.type == 'EMPTY' and hipolyObj.instance_collection:
                                 # return False  #prevent detecting empty mat on duplifaces
                                 emptyMatInGroup = self.checkEmptyMaterialForGroup(hipolyObj, context)
                                 if emptyMatInGroup:
                                     self.MaterialCheckedGroupNamesList.clear()
                                     return emptyMatInGroup
-                            elif hipolyObj.type == "MESH" and (len(hipolyObj.material_slots) == 0 or hipolyObj.material_slots[0].material is None):  # non empty objs
+                            # non empty objs
+                            elif hipolyObj.type == "MESH" and (len(hipolyObj.material_slots) == 0 or hipolyObj.material_slots[0].material is None):
                                 self.report({'INFO'}, 'Object: ' + hipolyObj.name + ' has no Material!')
                                 return True
                     else:  # if highpoly empty
@@ -708,22 +722,22 @@ class CyclesBakeOp(bpy.types.Operator):
     MaterialCheckedGroupNamesList = []
 
     def checkEmptyMaterialForGroup(self, empty, context):
-        if empty.dupli_group.name in self.MaterialCheckedGroupNamesList:
-            print(empty.dupli_group.name + " was already checked for empty mat. Skipping!")
+        if empty.instance_collection.name in self.MaterialCheckedGroupNamesList:
+            print(empty.instance_collection.name + " was already checked for empty mat. Skipping!")
             return False
-        for obj in bpy.data.groups[empty.dupli_group.name].objects:
-            if obj.dupli_group and obj.type == 'EMPTY':
+        for obj in bpy.data.collections[empty.instance_collection.name].objects:
+            if obj.instance_collection and obj.type == 'EMPTY':
                 return self.checkEmptyMaterialForGroup(obj, context)
             elif obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None) and not obj.hide_render:
                 self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material!')
-                self.MaterialCheckedGroupNamesList.append(empty.dupli_group.name)  # add to check list if there was obj with empty mat
+                self.MaterialCheckedGroupNamesList.append(empty.instance_collection.name)  # add to check list if there was obj with empty mat
                 return True
-        self.MaterialCheckedGroupNamesList.append(empty.dupli_group.name)  # or no empty mat in group
+        self.MaterialCheckedGroupNamesList.append(empty.instance_collection.name)  # or no empty mat in group
         return False
 
     def execute(self, context):
         TotalTime = datetime.now()
-        CyclesBakeSettings = context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = context.scene.cycles_baker_settings
         if self.is_empty_mat(context):
             return {'CANCELLED'}
 
@@ -778,10 +792,11 @@ class CyclesBakeOp(bpy.types.Operator):
 
     @staticmethod
     def playFinishSound():
+        return
         script_file = os.path.realpath(__file__)
         directory = os.path.dirname(script_file)
-        sound = aud.Factory.file(directory + "\\finished.mp3")
         device = aud.device()
+        sound = aud.Factory.file(directory + "\\finished.mp3") #Broken in 2.8
         handle = device.play(sound)
         # omit this to play full sound file
         # sleep(1)
@@ -789,22 +804,20 @@ class CyclesBakeOp(bpy.types.Operator):
         return
 
 
-class SDPanel(bpy.types.Panel):
+class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baking Tool"
-    bl_idname = "OBJECT_PT_cyclesbake"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "TOOLS"
+    bl_idname = "cycles_bake"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
     bl_category = "Cycles Baking"
 
-    @classmethod
-    def poll(cls, context):
-        return bpy.context.scene.render.engine == "CYCLES"
+    # @classmethod
+    # def poll(cls, context):
+    #     return bpy.context.scene.render.engine == "CYCLES"
 
     def draw(self, context):
         layout = self.layout
-        edit = context.user_preferences.edit
-        wm = context.window_manager
-        CyclesBakeSettings = context.scene.Cycles_Baker_settings
+        CyclesBakeSettings = context.scene.cycles_baker_settings
 
         row = layout.row(align=True)
         row.alignment = 'EXPAND'
@@ -896,7 +909,7 @@ class SDPanel(bpy.types.Panel):
                         oper.gr_obj = "object"
                         oper.prop = "highpoly"
                     else:
-                        subrow.prop_search(pair, "highpoly", bpy.data, "groups")
+                        subrow.prop_search(pair, "highpoly", bpy.data, "collections")
                         oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                         oper.bj_i = job_i
                         oper.pair_i = pair_i
@@ -1012,7 +1025,7 @@ class SDPanel(bpy.types.Panel):
                             if bakepass.environment_obj_vs_group == 'OBJ':
                                 subrow.prop_search(bakepass, "environment_group", bpy.context.scene, "objects")
                             else:
-                                subrow.prop_search(bakepass, "environment_group", bpy.data, "groups")
+                                subrow.prop_search(bakepass, "environment_group", bpy.data, "collections")
 
                     col = row.column()
                     row = col.row()
@@ -1037,109 +1050,109 @@ class SDPanel(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.alignment = 'EXPAND'
-        row.operator("cyclesbake.add_job", icon="ZOOMIN")
+        row.operator("cyclesbake.add_job", icon="ADD")
 
 
-class SDAddPairOp(bpy.types.Operator):
+class CB_OT_SDAddPairOp(bpy.types.Operator):
     '''add pair'''
 
     bl_idname = "cyclesbake.add_pair"
     bl_label = "Add Pair"
 
-    job_index = bpy.props.IntProperty()
+    job_index: bpy.props.IntProperty()
 
     def execute(self, context):
         scene_name = bpy.context.scene.name
-        pair = bpy.data.scenes[scene_name].Cycles_Baker_settings.bake_job_queue[self.job_index].bake_pairs_list.add()
+        pair = bpy.data.scenes[scene_name].cycles_baker_settings.bake_job_queue[self.job_index].bake_pairs_list.add()
         return {'FINISHED'}
 
 
-class SDRemPairOp(bpy.types.Operator):
+class CB_OT_SDRemPairOp(bpy.types.Operator):
     '''delete pair'''
 
     bl_idname = "cyclesbake.rem_pair"
     bl_label = "Remove Pair"
 
-    pair_index = bpy.props.IntProperty()
-    job_index = bpy.props.IntProperty()
+    pair_index: bpy.props.IntProperty()
+    job_index: bpy.props.IntProperty()
 
     def execute(self, context):
         scene_name = bpy.context.scene.name
-        bpy.data.scenes[scene_name].Cycles_Baker_settings.bake_job_queue[self.job_index].bake_pairs_list.remove(self.pair_index)
+        bpy.data.scenes[scene_name].cycles_baker_settings.bake_job_queue[self.job_index].bake_pairs_list.remove(self.pair_index)
 
         return {'FINISHED'}
 
 
-class SDAddPassOp(bpy.types.Operator):
+class CB_OT_SDAddPassOp(bpy.types.Operator):
     bl_idname = "cyclesbake.add_pass"
     bl_label = "Add Pass"
 
-    job_index = bpy.props.IntProperty()
+    job_index: bpy.props.IntProperty()
 
     def execute(self, context):
-        addonPref = bpy.context.user_preferences.addons['cycles_baker'].preferences
-        newpass = context.scene.Cycles_Baker_settings.bake_job_queue[self.job_index].bake_pass_list.add()
+        addonPref = bpy.context.preferences.addons['cycles_baker'].preferences
+        newpass = context.scene.cycles_baker_settings.bake_job_queue[self.job_index].bake_pass_list.add()
         newpass.suffix = addonPref.NORMAL  # cos normal seems be default pass when added
         return {'FINISHED'}
 
 
-class SDPassOp(bpy.types.Operator):
+class CB_OT_SDPassOp(bpy.types.Operator):
     bl_idname = "cyclesbake.rem_pass"
     bl_label = "Remove Pass"
 
-    pass_index = bpy.props.IntProperty()
-    job_index = bpy.props.IntProperty()
+    pass_index: bpy.props.IntProperty()
+    job_index: bpy.props.IntProperty()
 
     def execute(self, context):
-        context.scene.Cycles_Baker_settings.bake_job_queue[self.job_index].bake_pass_list.remove(self.pass_index)
+        context.scene.cycles_baker_settings.bake_job_queue[self.job_index].bake_pass_list.remove(self.pass_index)
         return {'FINISHED'}
 
 
-class SDAddJobOp(bpy.types.Operator):
+class CB_OT_SDAddJobOp(bpy.types.Operator):
     bl_idname = "cyclesbake.add_job"
     bl_label = "Add Bake Job"
 
     def execute(self, context):
-        context.scene.Cycles_Baker_settings.bake_job_queue.add()
+        context.scene.cycles_baker_settings.bake_job_queue.add()
         return {'FINISHED'}
 
 
-class SDRemJobOp(bpy.types.Operator):
+class CB_OT_SDRemJobOp(bpy.types.Operator):
     bl_idname = "cyclesbake.rem_job"
     bl_label = "Remove Bake Job"
 
-    job_index = bpy.props.IntProperty()
+    job_index: bpy.props.IntProperty()
 
     def execute(self, context):
-        context.scene.Cycles_Baker_settings.bake_job_queue.remove(self.job_index)
+        context.scene.cycles_baker_settings.bake_job_queue.remove(self.job_index)
         return {'FINISHED'}
 
 
-class ObjectPicker(bpy.types.Operator):
+class CB_OT_ObjectPicker(bpy.types.Operator):
     bl_idname = "cyclesbake.objectpicker"
     bl_label = "Pick Obj"
-    bj_i = bpy.props.IntProperty()
-    pair_i = bpy.props.IntProperty()
-    prop = bpy.props.StringProperty()
-    gr_obj = bpy.props.StringProperty()
+    bj_i: bpy.props.IntProperty()
+    pair_i: bpy.props.IntProperty()
+    prop: bpy.props.StringProperty()
+    gr_obj: bpy.props.StringProperty()
 
     def execute(self, context):
-        if context.active_object and context.active_object.select:
+        if context.active_object and context.active_object.select_get():
             if self.gr_obj == "group" and self.prop == "highpoly":
-                context.scene.Cycles_Baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.users_group[0].name
+                context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.users_collection[0].name
             else:
-                context.scene.Cycles_Baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.name
+                context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.name
         return {'FINISHED'}
 
 
-class CageMaker(bpy.types.Operator):
+class CB_OT_CageMaker(bpy.types.Operator):
     bl_idname = "cyclesbake.cage_maker"
     bl_label = "Create Cage"
     bl_description = "Create new Cage object"
 
-    bj_i = bpy.props.IntProperty()
-    pair_i = bpy.props.IntProperty()
-    lowpoly = bpy.props.StringProperty()
+    bj_i: bpy.props.IntProperty()
+    pair_i: bpy.props.IntProperty()
+    lowpoly: bpy.props.StringProperty()
 
     def execute(self, context):
         cageName = 'cage_' + self.lowpoly
@@ -1168,7 +1181,7 @@ class CageMaker(bpy.types.Operator):
             PushPullModifier.vertex_group = vg.name
 
             context.scene.objects.link(cageObj)
-            context.scene.Cycles_Baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i].cage = cageObj.name
+            context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i].cage = cageObj.name
         return {'FINISHED'}
 
 
@@ -1180,6 +1193,7 @@ loadStart = 0
 from pathlib import Path
 from os.path import exists
 
+
 def abs_file_path(filePath):
     """Retuns absolute file path, using resolve (removes //..//"""
     abspathToFix = Path(bpy.path.abspath(filePath))  # crappy format like c:\\..\\...\\ddada.fbx
@@ -1190,13 +1204,14 @@ def abs_file_path(filePath):
         outputPathStr += '\\'
     return outputPathStr
 
-class CyclesTexturePreview(bpy.types.Operator):
+
+class CB_OT_CyclesTexturePreview(bpy.types.Operator):
     bl_idname = "cyclesbaker.texture_preview"
     bl_label = "Cycles Bake preview"
     bl_description = "Preview texture on model, by assigning bake result to lowpoly objects \n" \
                      "Press Shift - to preview multiple bake jobs"
 
-    bj_i = bpy.props.IntProperty()
+    bj_i: bpy.props.IntProperty()
     shiftClicked = False
 
     def invoke(self, context, event):
@@ -1204,8 +1219,8 @@ class CyclesTexturePreview(bpy.types.Operator):
             self.shiftClicked = True
         return self.execute(context)
 
-    def attachCyclesmaterial(self, obj,bj_i):
-        cycles_bake_settings = bpy.context.scene.Cycles_Baker_settings
+    def attachCyclesmaterial(self, obj, bj_i):
+        cycles_bake_settings = bpy.context.scene.cycles_baker_settings
         bj = cycles_bake_settings.bake_job_queue[bj_i]
         mat = bpy.data.materials.get(bj.name)
         if len(obj.material_slots) == 0:
@@ -1214,18 +1229,16 @@ class CyclesTexturePreview(bpy.types.Operator):
             obj.material_slots[0].material = mat
         if bpy.context.scene.render.engine == 'CYCLES':
             obj.data.materials[0].use_nodes = True
-        if bpy.context.scene.render.engine == 'BLENDER_RENDER':
-            obj.data.materials[0].use_nodes = False
 
     def execute(self, context):
-        cycles_bake_settings = bpy.context.scene.Cycles_Baker_settings
+        cycles_bake_settings = bpy.context.scene.cycles_baker_settings
         if self.shiftClicked:
-            bjList = [(i,bj) for i,bj in enumerate(cycles_bake_settings.bake_job_queue) if bj.activated]
+            bjList = [(i, bj) for i, bj in enumerate(cycles_bake_settings.bake_job_queue) if bj.activated]
         else:
-            bjList = [(self.bj_i,cycles_bake_settings.bake_job_queue[self.bj_i])]
-        addon_prefs = bpy.context.user_preferences.addons['sd_baker'].preferences
+            bjList = [(self.bj_i, cycles_bake_settings.bake_job_queue[self.bj_i])]
+        addon_prefs = bpy.context.preferences.addons['sd_baker'].preferences
         imagesFromBakePasses = []
-        for bj_i,bj in bjList:
+        for bj_i, bj in bjList:
             imagesFromBakePasses.clear()
             for bakepass in bj.bake_pass_list:  # refresh or load images from bakes
                 if bakepass.activated:
@@ -1265,9 +1278,9 @@ class CyclesTexturePreview(bpy.types.Operator):
                     # if obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None):
                     if obj.type == "MESH":
                         self.attachCyclesmaterial(obj, bj_i)
-            if len(obList)==0:
+            if len(obList) == 0:
                 continue
-        
+
             matNodeTree = bpy.data.materials.get(bj.name).node_tree
             for node in matNodeTree.nodes:
                 matNodeTree.nodes.remove(node)
@@ -1290,7 +1303,7 @@ class CyclesTexturePreview(bpy.types.Operator):
                     imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNode.name = bakepass.suffix
                     imgNode.label = bakepass.suffix
-                    imgNode.location = bakeIndex * 100, bakeIndex * 10 +380
+                    imgNode.location = bakeIndex * 100, bakeIndex * 10 + 380
                     imgNode.image = bakeImg
 
                     if previousID_AO_Node:
@@ -1304,7 +1317,7 @@ class CyclesTexturePreview(bpy.types.Operator):
                         links.new(imgNode.outputs[0], mixNode.inputs[1])
                         links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
                         previousID_AO_Node = mixNode
-                    else: #first id or AO texture
+                    else:  # first id or AO texture
                         links.new(imgNode.outputs[0], principledNode.inputs['Base Color'])
                         previousID_AO_Node = imgNode
 
@@ -1320,7 +1333,7 @@ class CyclesTexturePreview(bpy.types.Operator):
                     normalMapNode = matNodeTree.nodes.new('ShaderNodeNormalMap')
                     normalMapNode.location = bakeIndex + 600, -400
 
-                    if bakepass.nm_invert=='NEG_Y': #use DX normal == flip green chanel
+                    if bakepass.nm_invert == 'NEG_Y':  # use DX normal == flip green chanel
                         if "FlipGreenChannel" not in bpy.data.node_groups.keys():
                             script_file = os.path.realpath(__file__)
                             filepath = os.path.dirname(script_file)+"\\baker_library.blend"
@@ -1330,7 +1343,7 @@ class CyclesTexturePreview(bpy.types.Operator):
                         flipGreenNode = matNodeTree.nodes.new('ShaderNodeGroup')
                         flipGreenNode.node_tree = bpy.data.node_groups['FlipGreenChannel']
                         flipGreenNode.location = bakeIndex + 600, -400
-                        normalMapNode.location[0]+=200
+                        normalMapNode.location[0] += 200
                         links.new(imgNormalNode.outputs[0], flipGreenNode.inputs[0])
                         links.new(flipGreenNode.outputs[0], normalMapNode.inputs[1])
                         links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
@@ -1351,7 +1364,7 @@ class CyclesTexturePreview(bpy.types.Operator):
                     bpy.data.objects[pair.lowpoly].show_transparent = True
                     bpy.data.objects[pair.lowpoly].material_slots[0].material.game_settings.alpha_blend = 'ALPHA_ANTIALIASING'
 
-                else: #for all other just create img and do not link
+                else:  # for all other just create img and do not link
                     imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNormalNode.name = bakepass.suffix
                     imgNormalNode.label = bakepass.suffix
@@ -1361,22 +1374,46 @@ class CyclesTexturePreview(bpy.types.Operator):
         return {'FINISHED'}
 
 
+classes = (
+    CyclesBakePair,
+    CyclesBakePass,
+    CyclesBakeJob,
+    CyclesBakeSettings,
+    CB_OT_CyclesBakeOp,
+    CB_OT_SDAddPairOp,
+    CB_OT_SDRemPairOp,
+    CB_OT_SDAddPassOp,
+    CB_OT_SDPassOp,
+    CB_OT_SDAddJobOp,
+    CB_OT_SDRemJobOp,
+    CB_OT_ObjectPicker,
+    CB_OT_CageMaker,
+    CB_OT_CyclesTexturePreview,
+    CB_PT_SDPanel,
+    CyclesBakerPreferences,
+)
+
+
 def register():
-    bpy.utils.register_module(__name__)
+    from bpy.utils import register_class
+    for cls in classes:
+        register_class(cls)
+    bpy.types.Scene.cycles_baker_settings= bpy.props.PointerProperty(type=CyclesBakeSettings)
     bpy.types.Object.sd_orig_name = bpy.props.StringProperty(name="Original Name")
-    bpy.types.Group.sd_orig_name = bpy.props.StringProperty(name="Original Name")
+    bpy.types.Collection.sd_orig_name = bpy.props.StringProperty(name="Original Name")
     bpy.types.World.sd_orig_name = bpy.props.StringProperty(name="Original Name")
     bpy.types.Material.sd_orig_name = bpy.props.StringProperty(name="Original Name")
 
 
 def unregister():
-    bpy.utils.unregister_module(__name__)
+    from bpy.utils import unregister_class
+    for cls in reversed(classes):
+        unregister_class(cls)
     del bpy.types.Object.sd_orig_name
-    del bpy.types.Group.sd_orig_name
+    del bpy.types.Collection.sd_orig_name
     del bpy.types.World.sd_orig_name
     del bpy.types.Material.sd_orig_name
-
-
+    del bpy.types.Scene.cycles_baker_settings
 
 if __name__ == "__main__":
     register()
