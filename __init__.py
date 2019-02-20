@@ -321,7 +321,7 @@ def convertCurveToGeo(curve, scene):
     if curve.type == 'CURVE' and (curve.data.bevel_depth != 0 or curve.data.bevel_object is not None):  # for converting curve to geo
         mesh = curve.to_mesh(scene, True, 'RENDER')
         ObjMeshFromCurve = bpy.data.objects.new('DupaBla', mesh)
-        scene.objects.link(ObjMeshFromCurve)
+        scene.collection.objects.link(ObjMeshFromCurve)
         ObjMeshFromCurve.matrix_world = curve.matrix_world
         return ObjMeshFromCurve
     return None
@@ -464,8 +464,9 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
 
         # store the original names of things in the scene so we can easily identify them later
-        for object in bpy.context.scene.objects:
-            object.sd_orig_name = object.name
+            
+        for obj in bpy.context.scene.objects:
+            obj.sd_orig_name = obj.name
 
         for group in bpy.data.collections:
             group.sd_orig_name = group.name
@@ -478,12 +479,13 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         # duplicate the scene
         bpy.ops.scene.new(type='FULL_COPY')
         bpy.context.scene.name = "MD_TEMP"
-        # tag the copied object names with _MD_TMP
-        for object in bpy.data.scenes["MD_TEMP"].objects:
-            object.name = object.sd_orig_name + "_MD_TMP"
-        for world in bpy.data.worlds:
-            if world.name != world.sd_orig_name:
-                world.name = "MD_TEMP"
+        # tag the copied obj names with _MD_TMP
+        for obj in bpy.data.scenes["MD_TEMP"].objects:
+            obj.name = obj.sd_orig_name + "_MD_TMP"
+        bpy.data.scenes["MD_TEMP"].world.name = 'MD_TEMP'
+        # for world in bpy.data.worlds:
+        #     if world.name != world.sd_orig_name:
+        #         world.name = "MD_TEMP"
         for material in bpy.data.materials:
             print('material name is: ' + material.name)
             if material.use_nodes:
@@ -494,10 +496,10 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         for group in bpy.data.collections:
             if group.name != group.sd_orig_name:
                 group.name = group.sd_orig_name + "_MD_TMP"
-        for object in bpy.data.scenes["MD_TEMP"].objects:
-            if object.parent:  # set parent and modifiers obj to temp objs
-                if bpy.data.objects.get(object.parent.name + "_MD_TMP") is not None:
-                    object.parent = bpy.data.objects[object.parent.name + "_MD_TMP"]
+        for obj in bpy.data.scenes["MD_TEMP"].objects:
+            if obj.parent:  # set parent and modifiers obj to temp objs
+                if bpy.data.objects.get(obj.parent.name + "_MD_TMP") is not None:
+                    obj.parent = bpy.data.objects[obj.parent.name + "_MD_TMP"]
 
         bpy.ops.object.select_all(action='DESELECT')
 
@@ -668,7 +670,10 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             if group.name.endswith("_MD_TMP"):
                 bpy.data.collections.remove(group, do_unlink=True)
 
-        bpy.ops.scene.delete()
+        # bpy.ops.scene.delete()
+        bpy.data.scenes.remove(bpy.data.scenes["MD_TEMP"])
+        bpy.data.worlds['MD_TEMP'].user_clear()
+        bpy.data.worlds.remove(bpy.data.worlds['MD_TEMP'])
 
     # empty mat search function
     def is_empty_mat(self, context):
@@ -736,6 +741,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         return False
 
     def execute(self, context):
+        bpy.ops.ed.undo_push()
         TotalTime = datetime.now()
         CyclesBakeSettings = context.scene.cycles_baker_settings
         if self.is_empty_mat(context):
@@ -781,12 +787,12 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                             comp_pass_sum_time += datetime.now() - comp_passes_sub
                 self.cleanup()  # delete scene
         # merge images from pass into one
-
         bpy.data.images["MDtarget"].user_clear()
         bpy.data.images.remove(bpy.data.images["MDtarget"])
-        self.playFinishSound()
+        # self.playFinishSound()
         print("Cycles Total baking time: " + str((datetime.now() - TotalTime).seconds))
         print("Cycles Comping pases time: " + str(comp_pass_sum_time.seconds))
+        bpy.ops.ed.undo() #TODO: Hack to fix second Bake. Fix if possible
 
         return {'FINISHED'}
 
@@ -1236,13 +1242,13 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             bjList = [(i, bj) for i, bj in enumerate(cycles_bake_settings.bake_job_queue) if bj.activated]
         else:
             bjList = [(self.bj_i, cycles_bake_settings.bake_job_queue[self.bj_i])]
-        addon_prefs = bpy.context.preferences.addons['sd_baker'].preferences
+        addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
         imagesFromBakePasses = []
         for bj_i, bj in bjList:
             imagesFromBakePasses.clear()
             for bakepass in bj.bake_pass_list:  # refresh or load images from bakes
                 if bakepass.activated:
-                    bakedImgPath = bj.get_filepath()[:-1] + '\\' + bakepass.get_filename(bj) + '.' + addon_prefs.outputFormat
+                    bakedImgPath = bj.get_filepath()[:-1] + '\\' + bakepass.get_filename(bj) + '.png'
                     imgAlreadyExist = False
                     oldImg = []
                     for img in bpy.data.images:  # find if bake is already loaded into bi images
@@ -1264,11 +1270,12 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                             imagesFromBakePasses.append(None)  # to preserve bakePass indexes
                 else:
                     imagesFromBakePasses.append(None)  # to preserve breaking bakePass indexes
-            bpy.context.space_data.viewport_shade = 'MATERIAL'
+            bpy.context.space_data.shading.type = 'MATERIAL'
+
             mat = bpy.data.materials.get(bj.name)
             if mat is None:
                 mat = bpy.data.materials.new(name=bj.name)
-                mat.diffuse_color = (0.609125, 0.0349034, 0.8)
+                mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
             obList = []
             for i_pair, pair in enumerate(bj.bake_pairs_list):
                 if pair.lowpoly in bpy.data.objects.keys():  # create group for hipoly
