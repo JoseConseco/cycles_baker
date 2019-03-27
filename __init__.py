@@ -812,7 +812,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baking Tool"
-    bl_idname = "cycles_bake"
+    bl_idname = "CB_PT_SDPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Cycles Baking"
