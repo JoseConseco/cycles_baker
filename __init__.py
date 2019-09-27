@@ -39,67 +39,65 @@ from bpy.props import *
 from mathutils import Matrix, Vector
 from datetime import datetime, timedelta
 
-# import sys
-# dir = 'C:\\Users\\JoseConseco\\AppData\\Local\\Programs\\Python\\Python35\\Lib\\site-packages'
-# if not dir in sys.path:
-#     sys.path.append(dir )
-# import ipdb
+import gpu
+import numpy as np
+from gpu_extras.batch import batch_for_shader
 
 
-def draw_cage_callback(pairClass, context):
-    frontRayDistanceMultiplier = pairClass.front_distance_modulator
-    g_rv3d = context.region_data
-    viewDir = g_rv3d.view_rotation * Vector((0.0, 0.0, 1.0))
-    if not pairClass.front_distance_modulator_draw:
+shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+def draw_cage_callback(self, context):
+    frontRayDistanceMultiplier = self.front_distance_modulator
+    if not self.front_distance_modulator_draw or not self.lowpoly:
         return
-    obj = bpy.data.objects[pairClass.lowpoly]
-    objVector = Vector(obj.dimensions[:])
-    objBBoxSize = objVector.length
-    parentBakeJob = None
-    for bj in bpy.data.scenes['Scene'].cycles_baker_settings.bake_job_queue:
-        for pair in bj.bake_pairs_list:
-            if pair == pairClass:
-                parentBakeJob = bj
-                break
-
-    frontDistance = parentBakeJob.frontDistance
-    if obj is None:
-        return
-    bgl.glEnable(bgl.GL_BLEND)
+    obj = bpy.data.objects[self.lowpoly]
     if obj.type == 'MESH' and context.mode == 'OBJECT':
-        mesh = obj.data
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
-        # get 2d screen vert coord from 3d view
-        transformedVerts = []
-        for vert in bm.verts:
-            if pairClass.front_distance_modulator_draw:
-                offset = vert.normal * frontRayDistanceMultiplier * frontDistance * objBBoxSize * 0.82  # 0,86 to match substance ray distance
-            vector3d = obj.matrix_world @ (vert.co + offset)
-            transformedVerts.append(vector3d)
+        for bj in bpy.data.scenes['Scene'].cycles_baker_settings.bake_job_queue:
+            for pair in bj.bake_pairs_list:
+                if pair == self:
+                    parentBakeJob = bj
+                    break
 
-        bgl.glEnable(bgl.GL_DEPTH_TEST)
+        objBBoxSize = Vector(obj.dimensions[:]).length if parentBakeJob.relativeToBbox else 1
+        frontDistance = self.front_distance_modulator
+    
+        mesh = bpy.context.active_object.data
+        vert_count = len(mesh.vertices)
+        mesh.calc_loop_triangles()
 
-        if pairClass.front_distance_modulator_draw:
-            g_face_color = [0, 0.8, 0]
-        else:
-            g_face_color = [0.8, 0, 0]
-        for face in bm.faces:
-            cosine = viewDir.dot(face.normal) * 0.5 + 0.5
-            bgl.glColor4f(g_face_color[0] * cosine, g_face_color[1] * cosine, g_face_color[2] * cosine, 0.5)
-            bgl.glBegin(bgl.GL_POLYGON)
-            for vert in face.verts:
-                vertex = transformedVerts[vert.index]
-                bgl.glVertex3f(vertex[0], vertex[1], vertex[2])
-            bgl.glEnd()
+        mat_np = np.array(obj.matrix_world, 'f')
+        vertices = np.empty((vert_count, 3), 'f')
+        normals = np.empty((vert_count, 3), 'f')
+        indices = np.empty((len(mesh.loop_triangles), 3), 'i')
+
+        mesh.vertices.foreach_get( "co", np.reshape(vertices, vert_count * 3))
+        mesh.vertices.foreach_get("normal", np.reshape(normals, vert_count * 3))
+        mesh.loop_triangles.foreach_get( "vertices", np.reshape(indices, len(mesh.loop_triangles) * 3))
+
+        vertices = vertices + normals * frontRayDistanceMultiplier * frontDistance / objBBoxSize  # 0,86 to match substance ray distance
+
+        coords_4d = np.ones((vert_count, 4), 'f')
+        coords_4d[:, :-1] = vertices
+        vertices = np.einsum('ij,aj->ai', mat_np, coords_4d)[:, :-1]
+    
+        bgl.glEnable(bgl.GL_BLEND)
+        bgl.glEnable(bgl.GL_CULL_FACE)
+        bgl.glCullFace(bgl.GL_BACK)
+
+        g_face_color = [0, 0.8, 0, 0.5] if self.front_distance_modulator_draw else [0.8, 0, 0, 0.5]
+
+        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
+        shader.bind()
+        shader.uniform_float("color", g_face_color)
+        batch.draw(shader)
 
         # restore opengl defaults
         bgl.glDisable(bgl.GL_DEPTH_TEST)
+        bgl.glDisable(bgl.GL_CULL_FACE)
+        # bgl.glLineWidth(1)
+        # bgl.glPointSize(1)
         bgl.glDisable(bgl.GL_BLEND)
-        bgl.glColor4f(0.0, 0.0, 0.0, 1.0)
 
 
-bm_old = [None]
 
 
 class CyclesBakerPreferences(bpy.types.AddonPreferences):
@@ -126,8 +124,8 @@ handleDrawRayDistance = []
 
 
 class CyclesBakePair(bpy.types.PropertyGroup):
-    def drawCage(self, draw):
-        if draw:
+    def drawCage(self, context):
+        if self.front_distance_modulator_draw:
             if handleDrawRayDistance:
                 bpy.types.SpaceView3D.draw_handler_remove(handleDrawRayDistance[0], 'WINDOW')
 
@@ -138,10 +136,6 @@ class CyclesBakePair(bpy.types.PropertyGroup):
                 bpy.types.SpaceView3D.draw_handler_remove(handleDrawRayDistance[0], 'WINDOW')
                 handleDrawRayDistance[:] = []
 
-    def DrawFrontRayDistance(self, context):
-        draw = self.front_distance_modulator_draw
-        self.drawCage(draw)
-
     activated: bpy.props.BoolProperty(
         name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
     lowpoly: bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
@@ -150,16 +144,12 @@ class CyclesBakePair(bpy.types.PropertyGroup):
                                             ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GRP', '', 'Group', 'GROUP', 1)])
     use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False)
     cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
-    front_distance_modulator: bpy.props.FloatProperty(
-        name="Front distance modulator", description="", default=1.0, min=0, max=10, subtype='FACTOR')
-    front_distance_modulator_draw: bpy.props.BoolProperty(
-        name="Draw Front distance", description="", default=False, update=DrawFrontRayDistance)
+    front_distance_modulator: bpy.props.FloatProperty( name="Front distance modulator", description="", default=1.0, min=0, max=10, subtype='FACTOR')
+    front_distance_modulator_draw: bpy.props.BoolProperty( name="Draw Front distance", description="", default=False, update=drawCage)
     no_materials: bpy.props.BoolProperty(name="No Materials", default=False)
 
 
-
-
-
+MODIFIER_OBJ_ATTR_NAMES = ['object', 'mirror_object', 'offset_object', 'origin', 'target']  # for checking eg if hasattr(mod, 'object')
 # def getPasses(self,context):
 #     # __import__('code').interact(local={k: v for ns in (globals(), locals()) for k, v in ns.items()})
 #     items = []
@@ -403,60 +393,50 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             aa = int(bj.antialiasing)  # revert image size to original size for next bake
             targetimage.scale(int(bj.bakeResolution) * aa, int(bj.bakeResolution) * aa)
 
-    def copyModifierParentsSetup(self, groupObjs, CloneObjPointer):  # same as GroupPro.py
+    @staticmethod
+    def copyModifierParentsSetup(groupObjs, cloned_obj_map):
         # copy modifier obj, parents etc from source do clones
-        import copy
         for groupObj in groupObjs:  # search donors
             if groupObj.parent:  # for array
-                if groupObj.parent.name not in CloneObjPointer.keys():  # what if parent /modifier obj is not inside group????
+                if groupObj.parent.name not in cloned_obj_map.keys():  # what if parent /modifier obj is not inside group????
                     pass  # then probably parent is outside group. So just skip it
                 else:
-                    backupMatrixWorld = copy.deepcopy(CloneObjPointer[groupObj.name].matrix_world)
-                    backupMatrixParentInv = copy.deepcopy(CloneObjPointer[groupObj.name].matrix_parent_inverse)
-                    CloneObjPointer[groupObj.name].parent = CloneObjPointer[groupObj.parent.name]  # set parent to new child
-                    # this is needed cos changing parent may zero MatrixParentInverted. So just restore it
-                    CloneObjPointer[groupObj.name].matrix_parent_inverse = backupMatrixParentInv
-                    CloneObjPointer[groupObj.name].matrix_world = backupMatrixWorld
-            for index, modifier in enumerate(groupObj.modifiers):
-                if hasattr(modifier, 'object'):
-                    if modifier.object and modifier.object.name in CloneObjPointer.keys():
-                        # set modifier to target
-                        CloneObjPointer[groupObj.name].modifiers[index].object = CloneObjPointer[modifier.object.name]
-                if hasattr(modifier, 'offset_object'):  # for array
-                    if modifier.offset_object and modifier.offset_object.name in CloneObjPointer.keys():
-                        # set modifier to target
-                        CloneObjPointer[groupObj.name].modifiers[index].offset_object = CloneObjPointer[modifier.offset_object.name]
-                if hasattr(modifier, 'origin'):  # for simple deform
-                    if modifier.origin and modifier.origin.name in CloneObjPointer.keys():
-                        # set modifier to target
-                        CloneObjPointer[groupObj.name].modifiers[index].origin = CloneObjPointer[modifier.origin.name]
+                    backupMatrixWorld = cloned_obj_map[groupObj.name].matrix_world.copy()
+                    backupMatrixParentInv = cloned_obj_map[groupObj.name].matrix_parent_inverse.copy()
+                    cloned_obj_map[groupObj.name].parent = cloned_obj_map[groupObj.parent.name]  # set parent to new child
+                    cloned_obj_map[groupObj.name].matrix_parent_inverse = backupMatrixParentInv  # this is needed cos changing parent may zero MatrixParentInverted. So just restore it
+                    cloned_obj_map[groupObj.name].matrix_world = backupMatrixWorld
 
-    def make_duplicates_real(self, empty, oldMatrix, highPolyGroupName, depth=0):
-        new_matrix = oldMatrix @ empty.matrix_world  # to store combination of parent collections matrices
+            for index, mod in enumerate(groupObj.modifiers):
+                for obj_attribute_name in MODIFIER_OBJ_ATTR_NAMES:
+                    if hasattr(mod, obj_attribute_name):
+                        oring_mod_obj = getattr(mod, obj_attribute_name)
+                        if oring_mod_obj and oring_mod_obj.name in cloned_obj_map.keys():
+                            setattr(cloned_obj_map[groupObj.name].modifiers[index], obj_attribute_name, cloned_obj_map[oring_mod_obj.name])
+
+    def make_duplicates_real(self, current_group, current_matrix, hi_collection, depth=0):
         CloneObjPointer = {}
-        for dupObj in empty.instance_collection.objects:
-            if dupObj.type == 'EMPTY' and dupObj.instance_collection:
-                self.make_duplicates_real(dupObj, new_matrix, highPolyGroupName, depth + 1)
+        for group_obj in current_group.all_objects:
+            if group_obj.type == 'EMPTY' and group_obj.instance_collection:
+                self.make_duplicates_real(group_obj, current_matrix @ group_obj.matrix_world, hi_collection, depth + 1)
             else:
-                copyGroupObj = dupObj.copy()
-                copyGroupObj.name += "_MD_TMP"
-                CloneObjPointer[dupObj.name] = copyGroupObj
-                if copyGroupObj.type == 'CURVE':  # try clone and convert curve to mesh.
-                    curveMeshClone = convertCurveToGeo(copyGroupObj, bpy.data.scenes['MD_TEMP'])
+                obj_copy = group_obj.copy()
+                obj_copy.name += "_MD_TMP"
+                CloneObjPointer[group_obj.name] = obj_copy
+                if obj_copy.type == 'CURVE':  # try clone and convert curve to mesh.
+                    curveMeshClone = convertCurveToGeo(obj_copy, bpy.data.scenes['MD_TEMP'])
                     if curveMeshClone is not None:
-                        bpy.data.collections[highPolyGroupName].objects.link(curveMeshClone)
-                        curveMeshClone.matrix_world = new_matrix @ curveMeshClone.matrix_world
-                    # copyGroupObj.select_set( True
+                        hi_collection.link(curveMeshClone)
+                        curveMeshClone.matrix_world = current_matrix  @ curveMeshClone.matrix_world
 
-                bpy.data.scenes["MD_TEMP"].collection.objects.link(copyGroupObj)
-                if not copyGroupObj.hide_render:  # to not add hidden render obj's to export
-                    bpy.data.collections[highPolyGroupName].objects.link(copyGroupObj)
-                copyGroupObj.matrix_world = new_matrix @ copyGroupObj.matrix_world
-        self.copyModifierParentsSetup(empty.instance_collection.objects, CloneObjPointer)
-        if depth == 0:  # remove only first empty, cos deeper empties are still used in other groupInstances on scene.
-            # bpy.data.scenes["MD_TEMP"].collection.objects.unlink(empty)  # remove empty from baking
-            empty.user_clear()
-            bpy.data.objects.remove(empty)
+                # if not group_obj_copy.hide_render:  #? to not add hidden render obj's to export
+                # obj_copy.hide_render = False
+                hi_collection.objects.link(obj_copy)
+                obj_copy.matrix_world = current_matrix @ obj_copy.matrix_world
+        
+
+        self.copyModifierParentsSetup(current_group.objects, CloneObjPointer)
+
 
     def scene_copy(self):
 
@@ -480,9 +460,10 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         bpy.ops.scene.new(type='FULL_COPY')
         bpy.context.scene.name = "MD_TEMP"
         # tag the copied obj names with _MD_TMP
-        for obj in bpy.data.scenes["MD_TEMP"].objects:
+        temp_scn = bpy.data.scenes["MD_TEMP"]
+        for obj in temp_scn.objects:
             obj.name = obj.sd_orig_name + "_MD_TMP"
-        bpy.data.scenes["MD_TEMP"].world.name = 'MD_TEMP'
+        temp_scn.world.name = 'MD_TEMP'
         # for world in bpy.data.worlds:
         #     if world.name != world.sd_orig_name:
         #         world.name = "MD_TEMP"
@@ -496,7 +477,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         for group in bpy.data.collections:
             if group.name != group.sd_orig_name:
                 group.name = group.sd_orig_name + "_MD_TMP"
-        for obj in bpy.data.scenes["MD_TEMP"].objects:
+        for obj in temp_scn.objects:
             if obj.parent:  # set parent and modifiers obj to temp objs
                 if bpy.data.objects.get(obj.parent.name + "_MD_TMP") is not None:
                     obj.parent = bpy.data.objects[obj.parent.name + "_MD_TMP"]
@@ -505,38 +486,37 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
         for pair in bj.bake_pairs_list:
             if pair.activated:
-                if pair.hp_obj_vs_group == "OBJ":  # create group for hipoly
-                    bpy.data.collections.new(pair.highpoly + "_MD_TMP")
-
+                low_poly_obj = temp_scn.objects[pair.lowpoly + "_MD_TMP"]
+                if low_poly_obj.name not in temp_scn.collection.objects:
+                    temp_scn.collection.objects.link(low_poly_obj)
                 # link obj's from group pro to hipoly group if obj is member of hipoly bake group
                 if pair.hp_obj_vs_group == "GRP":
                     # search for empties in hipoly group and convert them to geo
-                    for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
+                    hi_collection = bpy.data.collections[pair.highpoly + "_MD_TMP"]
+                    for obj in hi_collection.objects:
                         if obj.type == 'CURVE':
                             ObjMeshFromCurve = convertCurveToGeo(obj, bpy.data.scenes['MD_TEMP'])
                             if ObjMeshFromCurve is not None:
-                                bpy.data.collections[pair.highpoly + "_MD_TMP"].objects.link(ObjMeshFromCurve)
+                                hi_collection.objects.link(ObjMeshFromCurve)
                         if obj.type == 'EMPTY' and obj.instance_collection:
-                            self.make_duplicates_real(obj, Matrix.Identity(4), pair.highpoly +
-                                                      "_MD_TMP")  # create and add obj to hipolyGroupName
-                else:
-                    hipolyTemp = bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"]
-                    if hipolyTemp.type == 'EMPTY' and hipolyTemp.instance_collection:
-                        self.make_duplicates_real(hipolyTemp, Matrix.Identity(4), pair.highpoly +
-                                                  "_MD_TMP")  # TODO: whant if there is curve in group?
+                            self.make_duplicates_real(obj.instance_collection, obj.matrix_world, pair.highpoly + "_MD_TMP")  # create and add obj to hipolyGroupName
+                else: #pair.hp_obj_vs_group == "OBJ"
+                    hi_collection = bpy.data.collections.new(pair.highpoly + "_MD_TMP")
+                    hi_poly_obj = temp_scn.objects[pair.highpoly + "_MD_TMP"]
+                    if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
+                        self.make_duplicates_real(hi_poly_obj.instance_collection, obj.matrix_world, hi_collection)  # TODO: whant if there is curve in group?
                     else:
-                        if hipolyTemp.type == 'CURVE':  # try clone, convert to mesh, and add to highpoly if possible
-                            ObjMeshFromCurve = convertCurveToGeo(hipolyTemp, bpy.data.scenes['MD_TEMP'])
+                        if hi_poly_obj.type == 'CURVE':  # try clone, convert to mesh, and add to highpoly if possible
+                            ObjMeshFromCurve = convertCurveToGeo(hi_poly_obj, bpy.data.scenes['MD_TEMP'])
                             if ObjMeshFromCurve is not None:
-                                bpy.data.collections[pair.highpoly + "_MD_TMP"].objects.link(ObjMeshFromCurve)
-                        isAlreadyInHP_Group = False
-                        for objGroup in bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"].users_collection:
-                            if objGroup == bpy.data.collections[pair.highpoly + "_MD_TMP"]:
-                                isAlreadyInHP_Group = True
-                                break
-                        if not isAlreadyInHP_Group:
-                            bpy.data.collections[pair.highpoly +
-                                            "_MD_TMP"].objects.link(bpy.data.scenes["MD_TEMP"].objects[pair.highpoly + "_MD_TMP"])
+                                hi_collection.objects.link(ObjMeshFromCurve)
+                        # isAlreadyInHP_Group = False
+                        # for objGroup in hi_poly_obj.users_collection:
+                        #     if objGroup == hi_collection:
+                        #         isAlreadyInHP_Group = True
+                        #         break
+                        hi_collection.objects.link(hi_poly_obj)
+                    bpy.data.scenes["MD_TEMP"].collection.children.link(hi_collection)
 
     def select_hi_low(self):
         CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
@@ -550,7 +530,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 obj.hide_render = True
             # make selections, ensure visibility
             enviroGroupName = ''
-            # bpy.data.scenes["MD_TEMP"].layers[0] = True
             bpy.ops.object.select_all(action='DESELECT')
             for bakepass in bj.bake_pass_list:
                 if bakepass.environment_group != "":  # bake enviro objects too
@@ -559,45 +538,31 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                         for obj in bpy.data.collections[bakepass.environment_group + "_MD_TMP"].objects:
                             obj.hide_render = False
                             obj.select_set(True)
-                            # obj.layers[0] = True
                     else:
                         EnviroObj = bpy.data.scenes["MD_TEMP"].objects[bakepass.environment_group + "_MD_TMP"]
                         EnviroObj.hide_render = False
                         EnviroObj.select_set( True)
-                        # EnviroObj.layers[0] = True
 
             print("selected  enviro group " + pair.lowpoly)
 
-            # highpoly export
-            print("exporting pair " + pair.lowpoly)
-            # bpy.data.scenes["MD_TEMP"].layers[0] = True
-
             # make selections, ensure visibility
-            # bpy.ops.object.select_all(action='DESELECT')
             if pair.highpoly != "":
                 for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
                     obj.hide_render = False
-                    # obj.layers[0] = True
                     obj.select_set( True)
 
-            # Lowpoly export
-            print("exporting pair " + pair.highpoly)
             # lowpoly visibility
             bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_viewport = False
             bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_select = False
             bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_render = False
-            # bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].layers[0] = True
             bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].select_set( True)
-            # bpy.data.scenes["MD_TEMP"].objects.active = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
             bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
-
             # cage visibility
             if pair.use_cage and pair.cage != "":
                 bpy.ops.object.select_all(action='DESELECT')
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_viewport = False
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_select = False
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_render = False
-                # bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].layers[0] = True
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].select_set( True)
 
     def bake_pair_pass(self):
@@ -606,7 +571,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
         pair = bj.bake_pairs_list[self.pair_index]
         aa = int(bj.antialiasing)
-        # ipdb.set_trace()
         if pair.activated == True:
             self.create_temp_node()
             self.startTime = datetime.now()  # time debug
@@ -629,7 +593,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             if pass_name == "MAT_ID":
                 pass_name = 'DIFFUSE'
                 passFilter = {'COLOR'}
-
             bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
                                 width=int(bj.bakeResolution)*aa, height=int(bj.bakeResolution)*aa, margin=dilation,
                                 use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
@@ -790,8 +753,8 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         bpy.data.images["MDtarget"].user_clear()
         bpy.data.images.remove(bpy.data.images["MDtarget"])
         # self.playFinishSound()
-        print("Cycles Total baking time: " + str((datetime.now() - TotalTime).seconds))
-        print("Cycles Comping pases time: " + str(comp_pass_sum_time.seconds))
+        print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
+        print(f"Cycles Comping pases time: {comp_pass_sum_time.seconds} sec")
         bpy.ops.ed.undo() #TODO: Hack to fix second Bake. Fix if possible
 
         return {'FINISHED'}
@@ -1332,9 +1295,8 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNormalNode.name = bakepass.suffix
                     imgNormalNode.label = bakepass.suffix
-                    bakeImg.colorspace_settings.name = 'Linear'
+                    bakeImg.colorspace_settings.name = 'Non-Color' #or normals
                     imgNormalNode.image = bakeImg
-                    imgNormalNode.color_space = 'NONE'
                     imgNormalNode.location = bakeIndex + 400, -400
 
                     normalMapNode = matNodeTree.nodes.new('ShaderNodeNormalMap')
