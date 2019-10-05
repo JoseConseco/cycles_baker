@@ -140,8 +140,8 @@ class CyclesBakePair(bpy.types.PropertyGroup):
         name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
     lowpoly: bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
     highpoly: bpy.props.StringProperty(name="", description="Highpoly mesh", default="")
-    hp_obj_vs_group: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
-                                            ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GRP', '', 'Group', 'GROUP', 1)])
+    hp_type: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
+                                            ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GROUP', '', 'Group', 'GROUP', 1)])
     use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False)
     cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
     front_distance_modulator: bpy.props.FloatProperty( name="Front distance modulator", description="", default=1.0, min=0, max=10, subtype='FACTOR')
@@ -192,7 +192,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
     bake_all_highpoly: bpy.props.BoolProperty(name="Highpoly", default=False)
     environment_obj_vs_group: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
-                                                     ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GRP', '', 'Group', 'GROUP', 1)])
+                                                     ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GROUP', '', 'Group', 'GROUP', 1)])
     environment_group: bpy.props.StringProperty(name="", description="Additional environment occluding object(or group)", default="")
 
     # nm_pass_index : bpy.props.EnumProperty(name = "Normal map pass", items = getPasses  )
@@ -418,7 +418,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         CloneObjPointer = {}
         for group_obj in current_group.all_objects:
             if group_obj.type == 'EMPTY' and group_obj.instance_collection:
-                self.make_duplicates_real(group_obj, current_matrix @ group_obj.matrix_world, hi_collection, depth + 1)
+                self.make_duplicates_real(group_obj.instance_collection, current_matrix @ group_obj.matrix_world, hi_collection, depth + 1)
             else:
                 obj_copy = group_obj.copy()
                 obj_copy.name += "_MD_TMP"
@@ -426,7 +426,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 if obj_copy.type == 'CURVE':  # try clone and convert curve to mesh.
                     curveMeshClone = convertCurveToGeo(obj_copy, bpy.data.scenes['MD_TEMP'])
                     if curveMeshClone is not None:
-                        hi_collection.link(curveMeshClone)
+                        hi_collection.objects.link(curveMeshClone)
                         curveMeshClone.matrix_world = current_matrix  @ curveMeshClone.matrix_world
 
                 # if not group_obj_copy.hide_render:  #? to not add hidden render obj's to export
@@ -490,7 +490,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 if low_poly_obj.name not in temp_scn.collection.objects:
                     temp_scn.collection.objects.link(low_poly_obj)
                 # link obj's from group pro to hipoly group if obj is member of hipoly bake group
-                if pair.hp_obj_vs_group == "GRP":
+                if pair.hp_type == "GROUP":
                     # search for empties in hipoly group and convert them to geo
                     hi_collection = bpy.data.collections[pair.highpoly + "_MD_TMP"]
                     for obj in hi_collection.objects:
@@ -499,8 +499,8 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                             if ObjMeshFromCurve is not None:
                                 hi_collection.objects.link(ObjMeshFromCurve)
                         if obj.type == 'EMPTY' and obj.instance_collection:
-                            self.make_duplicates_real(obj.instance_collection, obj.matrix_world, pair.highpoly + "_MD_TMP")  # create and add obj to hipolyGroupName
-                else: #pair.hp_obj_vs_group == "OBJ"
+                            self.make_duplicates_real(obj.instance_collection, obj.matrix_world, hi_collection)  # create and add obj to hipolyGroupName
+                else: #pair.hp_type == "OBJ"
                     hi_collection = bpy.data.collections.new(pair.highpoly + "_MD_TMP")
                     hi_poly_obj = temp_scn.objects[pair.highpoly + "_MD_TMP"]
                     if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
@@ -534,7 +534,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             for bakepass in bj.bake_pass_list:
                 if bakepass.environment_group != "":  # bake enviro objects too
                     enviroGroupName = bakepass.environment_group
-                    if bakepass.environment_obj_vs_group == "GRP":
+                    if bakepass.environment_obj_vs_group == "GROUP":
                         for obj in bpy.data.collections[bakepass.environment_group + "_MD_TMP"].objects:
                             obj.hide_render = False
                             obj.select_set(True)
@@ -548,8 +548,9 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             # make selections, ensure visibility
             if pair.highpoly != "":
                 for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
-                    obj.hide_render = False
-                    obj.select_set( True)
+                    if obj.type == 'MESH':
+                        obj.hide_render = False
+                        obj.select_set( True)
 
             # lowpoly visibility
             bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_viewport = False
@@ -645,7 +646,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             for pair in bj.bake_pairs_list:
                 if pair.activated == True:
                     if pair.highpoly != "":
-                        if pair.hp_obj_vs_group == "GRP":
+                        if pair.hp_type == "GROUP":
                             for obj in bpy.data.collections[pair.highpoly].objects:
                                 if obj.type == 'EMPTY' and obj.instance_collection:
                                     continue
@@ -722,7 +723,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                     if pair.lowpoly == "" or pair.lowpoly not in bpy.data.objects.keys():
                         self.report({'INFO'}, 'Lowpoly not found ' + pair.lowpoly)
                         pair.activated = False
-                    if pair.lowpoly == "" or pair.highpoly not in bpy.data.objects.keys():
+                    if pair.highpoly == "" or (pair.hp_type=="OBJ" and pair.highpoly not in bpy.data.objects.keys()) or (pair.hp_type=="GROUP" and pair.highpoly not in bpy.data.collections.keys()):
                         self.report({'INFO'}, 'highpoly not found ' + pair.highpoly)
                         pair.activated = False
 
@@ -869,8 +870,8 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     oper.prop = "lowpoly"
 
                     subrow = box.row(align=True)
-                    subrow.prop(pair, 'hp_obj_vs_group', expand=True)
-                    if pair.hp_obj_vs_group == 'OBJ':
+                    subrow.prop(pair, 'hp_type', expand=True)
+                    if pair.hp_type == 'OBJ':
                         subrow.prop_search(pair, "highpoly", bpy.context.scene, "objects")
                         oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                         oper.bj_i = job_i
