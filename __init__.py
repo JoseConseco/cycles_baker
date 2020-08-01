@@ -30,9 +30,13 @@ bl_info = {
     "category": "Object"}
 
 import os
+from numpy.lib.stride_tricks import as_strided
+import time
 import bpy
 import bgl
 import bmesh
+import aud
+from time import sleep
 import aud
 from bpy.app.handlers import persistent
 from bpy.props import *
@@ -106,9 +110,10 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     Info: bpy.props.StringProperty(name="Info", description="", default="")
     MAT_ID: bpy.props.StringProperty(name="Mat ID suffix", description="", default='id')
     AO: bpy.props.StringProperty(name="AO suffix", description="", default='ao')
-    NORMAL: bpy.props.StringProperty(name="NORMAL suffix", description="", default="normal")
-    HEIGHT: bpy.props.StringProperty(name="Thickness map suffix", description="", default="height")
+    NORMAL: bpy.props.StringProperty(name="NORMAL suffix", description="", default="nrm")
+    # HEIGHT: bpy.props.StringProperty(name="Height map suffix", description="", default="heig")
     OPACITY: bpy.props.StringProperty(name="Opacity map suffix", description="", default="opacity")
+    COMBINED: bpy.props.StringProperty(name="Combined map suffix", description="", default="combined")
 
     def draw(self, context):
         layout = self.layout
@@ -116,8 +121,9 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "MAT_ID")
         layout.prop(self, "AO")
         layout.prop(self, "NORMAL")
-        layout.prop(self, "HEIGHT")
-        layout.prop(self, "OPACITY")
+        # layout.prop(self, "HEIGHT")
+        # layout.prop(self, "COMBINED")
+        # layout.prop(self, "OPACITY")
 
 
 handleDrawRayDistance = []
@@ -160,6 +166,159 @@ MODIFIER_OBJ_ATTR_NAMES = ['object', 'mirror_object', 'offset_object', 'origin',
 #         items.append((passes.pass_name,passes.pass_name,""))
 #     return items
 
+class CB_OT_ImageDilate(bpy.types.Operator):
+    bl_idname = "object.image_dilate" 
+    bl_label = "Image Dilate"
+    bl_description = "Image Dilate"
+    bl_options = {"REGISTER","UNDO"}
+
+    repeat: bpy.props.IntProperty(name='Repeat', description='', default= 1, min=1, max=20)
+    image_name: bpy.props.StringProperty(name='Image Name', description='', default='')    
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, 'repeat')
+        layout.prop_search(self, "image_name", bpy.data, "images")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    @staticmethod
+    def inpaint_tangents(pixels):
+        # invalid = pixels[:, :, 2] < 0.5 + (self.tolerance * 0.5)
+        invalid = pixels[:, :, 3] < 0.4
+
+        # grow selection
+        # for _ in range(2):
+        #     #add false padding 1
+        #     invalid[0, :] = False 
+        #     invalid[-1, :] = False
+        #     invalid[:, 0] = False
+        #     invalid[:, -1] = False
+
+
+        #     invalid = ( #grow invalid
+        #         np.roll(invalid, 1, axis=0)
+        #         | np.roll(invalid, -1, axis=0)
+        #         | np.roll(invalid, 1, axis=1)
+        #         | np.roll(invalid, -1, axis=1)
+        #     )
+        # #todo fill with color??
+        # pixels[invalid] = np.array([0.0, 0.0, 1.0, 0.0])
+
+        # #add false padding 1
+        # invalid[0, :] = False
+        # invalid[-1, :] = False
+        # invalid[:, 0] = False
+        # invalid[:, -1] = False
+
+        # fill
+        inv = np.copy(invalid)
+        locs = [(0, -1, 1), (0, 1, -1), (1, -1, 1), (1, 1, -1)]
+        for i in range(4):
+            print("fill step:", i)
+            for l in locs:
+                inv_rolled = np.roll(inv, l[1], axis=l[0]) #rol +- right or down
+                target_ids = (inv_rolled != inv) & inv # find ids where we will copy too
+                pixels[target_ids] = pixels[np.roll(target_ids, l[2], axis=l[0])] #copy from same axis, but neg dir
+                inv[target_ids] = False
+
+        cl = np.roll(invalid, -1, axis=0)
+        cr = np.roll(invalid, 1, axis=0)
+        uc = np.roll(invalid, -1, axis=1)
+        bc = np.roll(invalid, 1, axis=1)
+
+        # smooth
+        # for i in range(4):
+        #     print("smooth step:", i)
+        #     pixels[invalid] = (pixels[invalid] + pixels[cl] + pixels[cr] + pixels[uc] + pixels[bc]) / 5
+
+        return pixels
+
+    @staticmethod
+    def img_dillate(img_arr, img_size, repeat):
+        # channel = np.ma.array(img_arr[:, :, 0], mask=alpha)
+        # window_shape = (repeat*2+1, repeat*2+1)
+        alpha = img_arr[:, :, 3] > 0.5  # True when masked - ignore
+        channel = np.copy(img_arr[:, :, 0])
+
+        channel[~alpha] = np.nan #mask out to
+        window_shape = (3, 3)
+        channel_pad = np.pad(channel, pad_width=1, mode='edge')
+        for i in range(repeat):
+            view_shape = tuple(np.subtract(channel_pad.shape, window_shape) + 1) + window_shape  # cos img_dim - window +1
+            # channel_masked = np.ma.array(channel_pad, mask=mask_pad)
+            arr_view = as_strided(channel_pad, view_shape, channel_pad.strides * 2)
+            # convolved_matrix = np.einsum('hi,hikl->kl', kernel, submatrices)
+
+            # img_arr = np.max(arr_view, axis=(2,3)) #collapses (2,3) dim -> out (2,2)
+            # img_arr = np.maximum.reduce(arr_view, (2, 3)) #same as above
+            aver_channel = np.nanmean(arr_view, axis=(2, 3))  # collapses (2,3) dim -> out (2,2)
+            prev_nans = ~np.isnan(channel)
+            aver_channel[prev_nans] = channel[prev_nans]  # replace prev step non_nan with before blur
+            channel = aver_channel
+            channel_pad[1:-1,1:-1] = channel
+        # img_valid_count = np.sum(arr_view>0, axis=(2, 3))
+        # aver_img = np.nan_to_num(img_sum/img_valid_count)  # fix div 0 -> nans
+        # channel[alpha] = img_arr[:, :, 0][alpha]  # restore black pixles from original
+        return channel
+
+    def execute(self, context):
+        if not self.image_name:
+            return {'CANCELLED'}
+            
+        in_img = bpy.data.images[self.image_name]
+        img_arr = np.array(in_img.pixels, dtype=np.float16).reshape(in_img.size[0], in_img.size[0], 4)  # RGBA
+        
+        # dillated = self.img_dillate(img_arr,  in_img.size[0], self.repeat)  # only R channel
+        dillated = self.inpaint_tangents(img_arr)  # only R channel
+        final = dillated  # fill back
+
+        if "Dilated" not in bpy.data.images.keys():
+            bpy.data.images.new("Dilated", width=in_img.size[0], height=in_img.size[0], alpha=False, float_buffer=False)
+
+        out_img = bpy.data.images['Dilated']
+        out_img.scale(in_img.size[0], in_img.size[0])
+        # img_arr = np.power(img_arr, 1 / 2.2)
+        # toRGB = np.repeat(final[:, :, None], 4, axis=2)
+        # toRGB[:, :, 3] = 1.
+        out_img.pixels = dillated.ravel()  # flatten the array to 1 dimension and write it to testImg pixels
+        return {"FINISHED"}
+
+
+
+    def executeSlow(self, context): #slow but nice looking lin interpol on masked data
+        if not self.image_name:
+            return {'CANCELLED'}
+
+        in_img = bpy.data.images[self.image_name]
+        img_arr = np.array(in_img.pixels, dtype=np.float16).reshape(in_img.size[0], in_img.size[0], 4)  # RGBA
+
+        alpha = img_arr[:, :, 3] < 0.5  # True when masked - ignore
+        red = np.ma.array(img_arr[:, :, 0], mask=alpha)
+        # dillated = self.img_dillate(red,alpha, in_img.size[0], self.repeat)  # only R channel
+        # final = dillated.fill(img_arr[:, :, 0]) #fill back
+
+        def my_func(b):
+            """interpolade masked/missing vales"""
+            if np.all(b.mask):  # there is no data to imporpolate form
+                return b.data  # return original data
+            c = np.interp(np.where(b.mask)[0], np.where(~b.mask)[0], b[np.where(~b.mask)[0]])
+            b[np.where(b.mask)[0]] = c
+            return b
+
+        final = np.apply_along_axis(my_func, 0, red)
+
+        if "out" not in bpy.data.images.keys():
+            bpy.data.images.new("out", width=in_img.size[0], height=in_img.size[0], alpha=False, float_buffer=False)
+
+        out_img = bpy.data.images['out']
+        out_img.scale(in_img.size[0], in_img.size[0])
+        # img_arr = np.power(img_arr, 1 / 2.2)
+        toRGB = np.repeat(final[:, :, None], 4, axis=2)
+        out_img.pixels = toRGB.ravel()  # flatten the array to 1 dimension and write it to testImg pixels
+        return {"FINISHED"}
+
 class CyclesBakePass(bpy.types.PropertyGroup):
     def upSuffix(self, context):
         addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
@@ -169,8 +328,10 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             self.suffix = addon_prefs.NORMAL
         if self.pass_name == "MAT_ID":
             self.suffix = addon_prefs.MAT_ID
-        if self.pass_name == "HEIGHT":
-            self.suffix = addon_prefs.HEIGHT
+        # if self.pass_name == "HEIGHT":
+        #     self.suffix = addon_prefs.HEIGHT
+        if self.pass_name == "COMBINED":
+            self.suffix = addon_prefs.COMBINED
         if self.pass_name == "OPACITY":
             self.suffix = addon_prefs.OPACITY
 
@@ -181,8 +342,9 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                            ("MAT_ID", "Material ID", ""),
                                            ("AO", "Ambient Occlusion", ""),
                                            ("NORMAL", "Normal", ""),
-                                           ("HEIGHT", "Height", ""),
-                                           ("OPACITY", "Opacity mask", ""),
+                                        #    ("HEIGHT", "Height", ""),
+                                        #    ("OPACITY", "Opacity mask", ""),
+                                        #    ("COMBINED", "Combined", ""),
                                       ), update=upSuffix)
 
     material_override: bpy.props.StringProperty(name="Material Override", description="", default="")
@@ -228,26 +390,15 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             props = {"ao_distance", "samples", "environment_group", "ray_distrib"}
         if self.pass_name == "NORMAL":
             props = {"nm_space", "nm_invert", "bit_depth"}
+        if self.pass_name == "NORMAL":
+            props = {"nm_space", "nm_invert", "bit_depth"}
         # if self.pass_name == "OPACITY":
         #     props = {'position_mode', 'OPACITY'}
-        if self.pass_name == "HEIGHT":
-            props = {'bit_depth'}
+        # if self.pass_name == "HEIGHT":
+        #     props = {'bit_depth'}
 
         return props
 
-    def get_subst_designer_pass_name(self):  # convert pass name to SD bake command
-        if self.pass_name == "MAT_ID":
-            return "color-from-mesh"
-        if self.pass_name == "AO":
-            return "ambient-occlusion-from-mesh"
-        if self.pass_name == "NORMAL":
-            return "normal-from-mesh"
-        if self.pass_name == "UV":
-            return "uv-map"
-        if self.pass_name == "HEIGHT":
-            return "height-from-mesh"
-        if self.pass_name == "OPACITY":
-            return "opacity-mask-from-mesh"
 
     def get_filename(self, bj):
         name = bj.name
@@ -281,7 +432,7 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
                                                 ("4", "4x", "")))
 
     dilation: bpy.props.FloatProperty(name="Dilation", description="Width of the dilation post-process (in percent of image size). Default = 0.007.",
-                                      default=0.007, min=0.00, max=0.01, subtype='PERCENTAGE')
+                                      default=0.007, min=0.00, soft_max=0.01, subtype='PERCENTAGE')
 
     output: bpy.props.StringProperty(name='File path',
                                      description='The path of the output image.',
@@ -331,12 +482,10 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
     startTime = None
     baseMaterialList = []
 
-    def create_temp_node(self):
-        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
-        pair = CyclesBakeSettings.bake_job_queue[self.job_index].bake_pairs_list[self.pair_index]
-        # add an image node to the lowpoly model's material
+    def create_temp_node(self, pair):
         bake_mat = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].active_material
-
+        if not bake_mat:
+            bake_mat = self.attach_material(bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"])
         bake_mat.use_nodes = True
         if "MDtarget" not in bake_mat.node_tree.nodes:
             imgnode = bake_mat.node_tree.nodes.new(type="ShaderNodeTexImage")
@@ -439,7 +588,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
 
     def scene_copy(self):
-
         CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
 
@@ -573,7 +721,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         pair = bj.bake_pairs_list[self.pair_index]
         aa = int(bj.antialiasing)
         if pair.activated == True:
-            self.create_temp_node()
+            self.create_temp_node(pair)
             self.startTime = datetime.now()  # time debug
             dilation = int(bj.dilation * int(bj.bakeResolution))
             # common params first
@@ -594,6 +742,9 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             if pass_name == "MAT_ID":
                 pass_name = 'DIFFUSE'
                 passFilter = {'COLOR'}
+            if pass_name == 'COMBINED':
+                passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
+                
             bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
                                 width=int(bj.bakeResolution)*aa, height=int(bj.bakeResolution)*aa, margin=dilation,
                                 use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
@@ -620,6 +771,17 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                     bpy.data.scenes["MD_TEMP"].collection.objects.unlink(obj)
                 obj.user_clear()
                 bpy.data.objects.remove(obj)
+
+    def attach_material(self, obj):
+        mat = bpy.data.materials.get("EmptyMat")
+        if mat is None:
+            # create materialD
+            mat = bpy.data.materials.new(name="EmptyMat")
+            mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1.0)
+        obj.data.materials.append(mat)
+        if bpy.context.scene.render.engine == 'CYCLES':
+            obj.data.materials[0].use_nodes = True
+        return mat
 
     def cleanup(self):
 
@@ -753,25 +915,30 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         # merge images from pass into one
         bpy.data.images["MDtarget"].user_clear()
         bpy.data.images.remove(bpy.data.images["MDtarget"])
-        # self.playFinishSound()
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
         print(f"Cycles Comping pases time: {comp_pass_sum_time.seconds} sec")
+        # self.playFinishSound()
         bpy.ops.ed.undo() #TODO: Hack to fix second Bake. Fix if possible
 
         return {'FINISHED'}
 
     @staticmethod
     def playFinishSound():
-        return
         script_file = os.path.realpath(__file__)
         directory = os.path.dirname(script_file)
-        device = aud.device()
-        sound = aud.Factory.file(directory + "\\finished.mp3") #Broken in 2.8
+        device = aud.Device()
+
+        sound = aud.Sound(os.path.join(directory, "finished.mp3"))
+
+        # play the audio, this return a handle to control play/pause
         handle = device.play(sound)
-        # omit this to play full sound file
-        # sleep(1)
+        # if the audio is not too big and will be used often you can buffer it
+        sound_buffered = aud.Sound.buffer(sound, 24000.0)
+        handle_buffered = device.play(sound_buffered)
+
+        # stop the sounds (otherwise they play until their ends)
         handle.stop()
-        return
+        handle_buffered.stop()
 
 
 class CB_PT_SDPanel(bpy.types.Panel):
@@ -1361,6 +1528,7 @@ classes = (
     CB_OT_CyclesTexturePreview,
     CB_PT_SDPanel,
     CyclesBakerPreferences,
+    CB_OT_ImageDilate,
 )
 
 
