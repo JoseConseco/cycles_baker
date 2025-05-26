@@ -34,13 +34,12 @@ from numpy.lib.stride_tricks import as_strided
 import time
 import bpy
 import bgl
-import bmesh
 import aud
 from time import sleep
 import aud
 from bpy.app.handlers import persistent
 from bpy.props import *
-from mathutils import Matrix, Vector
+from mathutils import Vector
 from datetime import datetime, timedelta
 
 import gpu
@@ -48,7 +47,7 @@ import numpy as np
 from gpu_extras.batch import batch_for_shader
 
 
-shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+shader = gpu.shader.from_builtin('UNIFORM_COLOR')
 def draw_cage_callback(self, context):
     frontRayDistanceMultiplier = self.front_distance_modulator
     if not self.front_distance_modulator_draw or not self.lowpoly:
@@ -63,7 +62,7 @@ def draw_cage_callback(self, context):
 
         objBBoxSize = Vector(obj.dimensions[:]).length if parentBakeJob.relativeToBbox else 1
         frontDistance = self.front_distance_modulator
-    
+
         mesh = bpy.context.active_object.data
         vert_count = len(mesh.vertices)
         mesh.calc_loop_triangles()
@@ -82,24 +81,20 @@ def draw_cage_callback(self, context):
         coords_4d = np.ones((vert_count, 4), 'f')
         coords_4d[:, :-1] = vertices
         vertices = np.einsum('ij,aj->ai', mat_np, coords_4d)[:, :-1]
-    
-        bgl.glEnable(bgl.GL_BLEND)
-        bgl.glEnable(bgl.GL_CULL_FACE)
-        bgl.glCullFace(bgl.GL_BACK)
 
-        g_face_color = [0, 0.8, 0, 0.5] if self.front_distance_modulator_draw else [0.8, 0, 0, 0.5]
+        gpu.state.blend_set('ALPHA')
+        gpu.state.face_culling_set('BACK')
 
-        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
+        face_color = (0, 0.8, 0, 0.5) if self.front_distance_modulator_draw else (0.8, 0, 0, 0.5)
+
         shader.bind()
-        shader.uniform_float("color", g_face_color)
+        shader.uniform_float("color", face_color)
+        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
         batch.draw(shader)
 
-        # restore opengl defaults
-        bgl.glDisable(bgl.GL_DEPTH_TEST)
-        bgl.glDisable(bgl.GL_CULL_FACE)
-        # bgl.glLineWidth(1)
-        # bgl.glPointSize(1)
-        bgl.glDisable(bgl.GL_BLEND)
+        # restore gpu defaults
+        gpu.state.blend_set('NONE')
+        gpu.state.face_culling_set('NONE')
 
 
 
@@ -167,13 +162,13 @@ MODIFIER_OBJ_ATTR_NAMES = ['object', 'mirror_object', 'offset_object', 'origin',
 #     return items
 
 class CB_OT_ImageDilate(bpy.types.Operator):
-    bl_idname = "object.image_dilate" 
+    bl_idname = "object.image_dilate"
     bl_label = "Image Dilate"
     bl_description = "Image Dilate"
     bl_options = {"REGISTER","UNDO"}
 
     repeat: bpy.props.IntProperty(name='Repeat', description='', default= 1, min=1, max=20)
-    image_name: bpy.props.StringProperty(name='Image Name', description='', default='')    
+    image_name: bpy.props.StringProperty(name='Image Name', description='', default='')
 
     def draw(self, context):
         layout = self.layout
@@ -191,7 +186,7 @@ class CB_OT_ImageDilate(bpy.types.Operator):
         # grow selection
         # for _ in range(2):
         #     #add false padding 1
-        #     invalid[0, :] = False 
+        #     invalid[0, :] = False
         #     invalid[-1, :] = False
         #     invalid[:, 0] = False
         #     invalid[:, -1] = False
@@ -266,10 +261,10 @@ class CB_OT_ImageDilate(bpy.types.Operator):
     def execute(self, context):
         if not self.image_name:
             return {'CANCELLED'}
-            
+
         in_img = bpy.data.images[self.image_name]
         img_arr = np.array(in_img.pixels, dtype=np.float16).reshape(in_img.size[0], in_img.size[0], 4)  # RGBA
-        
+
         # dillated = self.img_dillate(img_arr,  in_img.size[0], self.repeat)  # only R channel
         dillated = self.inpaint_tangents(img_arr)  # only R channel
         final = dillated  # fill back
@@ -582,7 +577,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 # obj_copy.hide_render = False
                 hi_collection.objects.link(obj_copy)
                 obj_copy.matrix_world = current_matrix @ obj_copy.matrix_world
-        
+
 
         self.copyModifierParentsSetup(current_group.objects, CloneObjPointer)
 
@@ -592,7 +587,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         bj = CyclesBakeSettings.bake_job_queue[self.job_index]
 
         # store the original names of things in the scene so we can easily identify them later
-            
+
         for obj in bpy.context.scene.objects:
             obj.sd_orig_name = obj.name
 
@@ -744,7 +739,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 passFilter = {'COLOR'}
             if pass_name == 'COMBINED':
                 passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
-                
+
             bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
                                 width=int(bj.bakeResolution)*aa, height=int(bj.bakeResolution)*aa, margin=dilation,
                                 use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
