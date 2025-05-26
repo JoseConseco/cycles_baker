@@ -149,15 +149,6 @@ class CyclesBakePair(bpy.types.PropertyGroup):
 
 
 MODIFIER_OBJ_ATTR_NAMES = ['object', 'mirror_object', 'offset_object', 'origin', 'target']  # for checking eg if hasattr(mod, 'object')
-# def getPasses(self,context):
-#     # __import__('code').interact(local={k: v for ns in (globals(), locals()) for k, v in ns.items()})
-#     items = []
-#     jQueIndex = self.path_from_id()[-20] #works only for this kind of -path_from_id- 'cycles_baker_settings.bake_job_queue[0].bake_pass_list[1]'
-#     CyclesBakeSettings = context.scene.cycles_baker_settings
-#     bj = CyclesBakeSettings.bake_job_queue[int(jQueIndex)]
-#     for passes in bj.bake_pass_list:
-#         items.append((passes.pass_name,passes.pass_name,""))
-#     return items
 
 class CB_OT_ImageDilate(bpy.types.Operator):
     bl_idname = "object.image_dilate"
@@ -349,7 +340,6 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                                      ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GROUP', '', 'Group', 'GROUP', 1)])
     environment_group: bpy.props.StringProperty(name="", description="Additional environment occluding object(or group)", default="")
 
-    # nm_pass_index : bpy.props.EnumProperty(name = "Normal map pass", items = getPasses  )
     bit_depth: bpy.props.EnumProperty(name="Color Depth", description="", default="0",
                                       items=(("0", "8 bit(default)", ""),
                                              ("1", "16 bit", "")
@@ -548,14 +538,14 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                             setattr(cloned_obj_map[groupObj.name].modifiers[index], obj_attribute_name, cloned_obj_map[oring_mod_obj.name])
 
     def make_duplicates_real(self, current_group, current_matrix, hi_collection, depth=0):
-        CloneObjPointer = {}
+        clones_map = {} # map of original obj name to cloned obj
         for group_obj in current_group.all_objects:
             if group_obj.type == 'EMPTY' and group_obj.instance_collection:
                 self.make_duplicates_real(group_obj.instance_collection, current_matrix @ group_obj.matrix_world, hi_collection, depth + 1)
             else:
                 obj_copy = group_obj.copy()
                 obj_copy.name += "_MD_TMP"
-                CloneObjPointer[group_obj.name] = obj_copy
+                clones_map[group_obj.name] = obj_copy
                 if obj_copy.type == 'CURVE':  # try clone and convert curve to mesh.
                     curveMeshClone = convertCurveToGeo(obj_copy, bpy.data.scenes['MD_TEMP'])
                     if curveMeshClone is not None:
@@ -568,7 +558,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 obj_copy.matrix_world = current_matrix @ obj_copy.matrix_world
 
 
-        self.copyModifierParentsSetup(current_group.objects, CloneObjPointer)
+        self.copyModifierParentsSetup(current_group.objects, clones_map)
 
 
     def scene_copy(self, bj):
@@ -651,7 +641,8 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         bpy.ops.object.select_all(action="DESELECT")
         if pair.activated:
             # enviro group export
-            for obj in bpy.data.scenes["MD_TEMP"].objects:
+            tmp_scn = bpy.data.scenes["MD_TEMP"]
+            for obj in tmp_scn.objects:
                 obj.hide_render = True
             # make selections, ensure visibility
             enviroGroupName = ''
@@ -664,7 +655,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                             obj.hide_render = False
                             obj.select_set(True)
                     else:
-                        EnviroObj = bpy.data.scenes["MD_TEMP"].objects[bakepass.environment_group + "_MD_TMP"]
+                        EnviroObj = tmp_scn.objects[bakepass.environment_group + "_MD_TMP"]
                         EnviroObj.hide_render = False
                         EnviroObj.select_set( True)
 
@@ -678,18 +669,20 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                         obj.select_set( True)
 
             # lowpoly visibility
-            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_viewport = False
-            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_select = False
-            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].hide_render = False
-            bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].select_set( True)
-            bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
+            lowpoly_obj = tmp_scn.objects[pair.lowpoly + "_MD_TMP"]
+            lowpoly_obj.hide_viewport = False
+            lowpoly_obj.hide_select = False
+            lowpoly_obj.hide_render = False
+            lowpoly_obj.select_set( True)
+            bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = lowpoly_obj
             # cage visibility
             if pair.use_cage and pair.cage != "":
                 bpy.ops.object.select_all(action='DESELECT')
-                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_viewport = False
-                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_select = False
-                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_render = False
-                bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].select_set( True)
+                cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
+                cage_obj.hide_viewport = False
+                cage_obj.hide_select = False
+                cage_obj.hide_render = False
+                cage_obj.select_set( True)
 
     def bake_pair_pass(self, bake_job, bakepass, pair, clear=True):
         if not pair.activated:
@@ -775,47 +768,45 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
     def is_empty_mat(self, context):
         CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
         for bj in CyclesBakeSettings.bake_job_queue:
-            for pair in bj.bake_pairs_list:
-                if pair.activated == True:
-                    if pair.highpoly != "":
-                        if pair.hp_type == "GROUP":
-                            for obj in bpy.data.collections[pair.highpoly].objects:
-                                if obj.type == 'EMPTY' and obj.instance_collection:
-                                    continue
-                                if obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None):
-                                    self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material!')
-                                    return True
-                        else:
-                            try:
-                                hipolyObj = bpy.data.objects[pair.highpoly]
-                            except:
-                                print("No highpoly " + pair.highpoly + " object on scene found! Cancelling")
-                                pair.activated = False
+            active_pair = [pair for pair in bj.bake_pairs_list if pair.activated]
+            for pair in active_pair:
+                if pair.highpoly != "":
+                    if pair.hp_type == "GROUP":
+                        for obj in bpy.data.collections[pair.highpoly].objects:
+                            if obj.type == 'EMPTY' and obj.instance_collection:
                                 continue
-                            if hipolyObj.type == 'EMPTY' and hipolyObj.instance_collection:
-                                # return False  #prevent detecting empty mat on duplifaces
-                                emptyMatInGroup = self.checkEmptyMaterialForGroup(hipolyObj, context)
-                                if emptyMatInGroup:
-                                    self.MaterialCheckedGroupNamesList.clear()
-                                    return emptyMatInGroup
-                            # non empty objs
-                            elif hipolyObj.type == "MESH" and (len(hipolyObj.material_slots) == 0 or hipolyObj.material_slots[0].material is None):
-                                self.report({'INFO'}, 'Object: ' + hipolyObj.name + ' has no Material!')
+                            if obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None):
+                                self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material!')
                                 return True
-                    else:  # if highpoly empty
-                        print("No highpoly defined. Disabling pair")
-                        pair.activated = False
-                        continue
-                    if pair.lowpoly == "":  # if lowpoly empty
-                        print("No highpoly defined. Disabling pair")
-                        pair.activated = False
-                        continue
-                    try:
-                        bpy.data.objects[pair.lowpoly]
-                    except:
-                        print("No lowpoly " + pair.lowpoly + " object on scene found! Disabling pair")
-                        pair.activated = False
-                        continue
+                    else:
+                        hipolyObj = bpy.data.objects.get(pair.highpoly)
+                        if not hipolyObj:
+                            print("No highpoly " + pair.highpoly + " object on scene found! Cancelling")
+                            pair.activated = False
+                            continue
+                        if hipolyObj.type == 'EMPTY' and hipolyObj.instance_collection:
+                            # return False  #prevent detecting empty mat on duplifaces
+                            emptyMatInGroup = self.checkEmptyMaterialForGroup(hipolyObj, context)
+                            if emptyMatInGroup:
+                                self.MaterialCheckedGroupNamesList.clear()
+                                return emptyMatInGroup
+                        # non empty objs
+                        elif hipolyObj.type == "MESH" and (len(hipolyObj.material_slots) == 0 or hipolyObj.material_slots[0].material is None):
+                            self.report({'INFO'}, 'Object: ' + hipolyObj.name + ' has no Material!')
+                            return True
+                else:  # if highpoly empty
+                    print("No highpoly defined. Disabling pair")
+                    pair.activated = False
+                    continue
+                if pair.lowpoly == "":  # if lowpoly empty
+                    print("No highpoly defined. Disabling pair")
+                    pair.activated = False
+                    continue
+                low = bpy.data.objects.get(pair.lowpoly)
+                if not low:
+                    print("No lowpoly " + pair.lowpoly + " object on scene found! Disabling pair")
+                    pair.activated = False
+                    continue
 
         self.MaterialCheckedGroupNamesList.clear()
         return False
@@ -932,7 +923,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
             row = layout.row(align=True)
             row.alignment = 'EXPAND'
 
-            if bj.expand == False:
+            if bj.expand is False:
                 row.prop(bj, "expand", icon="TRIA_RIGHT", icon_only=True, text=bj.name, emboss=False)
 
                 if bj.activated:
@@ -1264,21 +1255,20 @@ class CB_OT_CageMaker(bpy.types.Operator):
             cageObj.show_wire = True
             cageObj.show_all_edges = True
             cageObj.draw_type = 'WIRE'
-            PushPullModifier = cageObj.modifiers.new('Push', 'SHRINKWRAP')
-            PushPullModifier.target = lowObj
-            PushPullModifier.offset = 0.1
-            PushPullModifier.offset = 0.1
-            PushPullModifier.use_keep_above_surface = True
-            PushPullModifier.wrap_method = 'PROJECT'
-            PushPullModifier.use_negative_direction = True
+            push_mod = cageObj.modifiers.new('Push', 'SHRINKWRAP')
+            push_mod.target = lowObj
+            push_mod.offset = 0.1
+            push_mod.offset = 0.1
+            push_mod.use_keep_above_surface = True
+            push_mod.wrap_method = 'PROJECT'
+            push_mod.use_negative_direction = True
 
             vg = cageObj.vertex_groups.new(cageName + '_weigh')
-
             weight = 1
             for vert in lowObj.data.vertices:
                 vg.add([vert.index], weight, "ADD")
 
-            PushPullModifier.vertex_group = vg.name
+            push_mod.vertex_group = vg.name
 
             context.scene.objects.link(cageObj)
             context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i].cage = cageObj.name
