@@ -22,7 +22,7 @@ bl_info = {
     "name": "Cycles Baker",
     "author": "Bartosz Styperek",
     "version": (2, 0),
-    "blender": (2, 80, 0),
+    "blender": (3, 6, 0),
     "location": "Npanel -> Tool shelf -> Baking (tab)",
     "description": "Addon for baking with Cycles.",
     "warning": "",
@@ -31,16 +31,12 @@ bl_info = {
 
 import os
 from numpy.lib.stride_tricks import as_strided
-import time
 import bpy
-import bgl
 import aud
-from time import sleep
-import aud
-from bpy.app.handlers import persistent
+from os import path
 from bpy.props import *
 from mathutils import Vector
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import gpu
 import numpy as np
@@ -493,13 +489,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
         bake_mat.node_tree.nodes.active = imgnode
 
-    def create_render_target(self):
-        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
-        bj = CyclesBakeSettings.bake_job_queue[self.job_index]
-        aa = int(bj.antialiasing)
-        bpy.ops.image.new(name="MDtarget", width=int(bj.bakeResolution)*aa,
-                          height=int(bj.bakeResolution)*aa,
-                          color=(0.0, 0.0, 0.0, 0.0), alpha=True, generated_type='BLANK', float=False)
 
     def pass_material_id_prep(self):
         for material in bpy.data.materials:
@@ -522,20 +511,24 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 material.node_tree.nodes["Diffuse BSDF"].inputs["Color"].default_value = \
                     [material.diffuse_color[0], material.diffuse_color[1], material.diffuse_color[2], 1]
 
-    def compo_nodes_mergePassImgs(self):
-        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
-        bj = CyclesBakeSettings.bake_job_queue[self.job_index]
-        bakepass = bj.bake_pass_list[self.pass_index]
-        # job = mds.bake_job_queue[self.job]
-        if bakepass.activated:
-            targetimage = bpy.data.images["MDtarget"]
-            targetimage.scale(int(bj.bakeResolution), int(bj.bakeResolution))
-            # bpy.ops.render.render(write_still=True, scene="MD_COMPO")
-            targetimage.filepath_raw = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
-            targetimage.save()
+    def compo_nodes_mergePassImgs(self, bj, bakepass):
+        if not bakepass.activated:
+            return
+        targetimage = bpy.data.images["MDtarget"]
+        targetimage.scale(int(bj.bakeResolution), int(bj.bakeResolution))
+        # bpy.ops.render.render(write_still=True, scene="MD_COMPO")
+        imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
+        targetimage.filepath_raw = imgPath
 
-            aa = int(bj.antialiasing)  # revert image size to original size for next bake
-            targetimage.scale(int(bj.bakeResolution) * aa, int(bj.bakeResolution) * aa)
+        targetimage.scale(int(bj.bakeResolution), int(bj.bakeResolution))
+        targetimage.save()
+
+        if path.isfile(imgPath):  # load bake from disk
+            img = next((im for im in bpy.data.images if im.filepath == imgPath), None)
+            if img:
+                img.reload()  # reload done in baking
+            else:
+                img = bpy.data.images.load(filepath=imgPath)
 
     @staticmethod
     def copyModifierParentsSetup(groupObjs, cloned_obj_map):
@@ -582,10 +575,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         self.copyModifierParentsSetup(current_group.objects, CloneObjPointer)
 
 
-    def scene_copy(self):
-        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
-        bj = CyclesBakeSettings.bake_job_queue[self.job_index]
-
+    def scene_copy(self, bj):
         # store the original names of things in the scene so we can easily identify them later
 
         for obj in bpy.context.scene.objects:
@@ -661,13 +651,9 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                         hi_collection.objects.link(hi_poly_obj)
                     bpy.data.scenes["MD_TEMP"].collection.children.link(hi_collection)
 
-    def select_hi_low(self):
-        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
-        bj = CyclesBakeSettings.bake_job_queue[self.job_index]
-
-        pair = bj.bake_pairs_list[self.pair_index]
+    def select_hi_low(self, bj, pair):
         bpy.ops.object.select_all(action="DESELECT")
-        if pair.activated == True:
+        if pair.activated:
             # enviro group export
             for obj in bpy.data.scenes["MD_TEMP"].objects:
                 obj.hide_render = True
@@ -709,47 +695,42 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_render = False
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].select_set( True)
 
-    def bake_pair_pass(self):
-        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
-        bakepass = CyclesBakeSettings.bake_job_queue[self.job_index].bake_pass_list[self.pass_index]
-        bj = CyclesBakeSettings.bake_job_queue[self.job_index]
-        pair = bj.bake_pairs_list[self.pair_index]
-        aa = int(bj.antialiasing)
-        if pair.activated == True:
-            self.create_temp_node(pair)
-            self.startTime = datetime.now()  # time debug
-            dilation = int(bj.dilation * int(bj.bakeResolution))
-            # common params first
-            if bakepass.pass_name == "MAT_ID":
-                self.pass_material_id_prep()
-            bpy.data.scenes["MD_TEMP"].render.engine = "CYCLES"
-            # bpy.data.scenes["MD_TEMP"].cycles.bake_type = bakepass.pass_name
-            if bakepass.pass_name == "AO":
-                bpy.data.scenes["MD_TEMP"].cycles.samples = bakepass.samples
-                bpy.data.worlds["MD_TEMP"].light_settings.distance = bakepass.ao_distance
-            clear = True
-            if self.pair_index > 0:
-                clear = False
+    def bake_pair_pass(self, bake_job, bakepass, pair):
+        if not pair.activated:
+            return
+        self.create_temp_node(pair)
+        self.startTime = datetime.now()  # time debug
+        dilation = int(bake_job.dilation * int(bake_job.bakeResolution))
+        # common params first
+        if bakepass.pass_name == "MAT_ID":
+            self.pass_material_id_prep()
+        bpy.data.scenes["MD_TEMP"].render.engine = "CYCLES"
+        # bpy.data.scenes["MD_TEMP"].cycles.bake_type = bakepass.pass_name
+        if bakepass.pass_name == "AO":
+            bpy.data.scenes["MD_TEMP"].cycles.samples = bakepass.samples
+            bpy.data.worlds["MD_TEMP"].light_settings.distance = bakepass.ao_distance
+        clear = self.pair_index == 0
 
-            front = sorted([0, bj.frontDistance * pair.front_distance_modulator, 1])[1]  # clamp to 0-1 range trick
-            pass_name = bakepass.pass_name
-            passFilter = {'NONE'}
-            if pass_name == "MAT_ID":
-                pass_name = 'DIFFUSE'
-                passFilter = {'COLOR'}
-            if pass_name == 'COMBINED':
-                passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
+        front = sorted([0, bake_job.frontDistance * pair.front_distance_modulator, 1])[1]  # clamp to 0-1 range trick
+        pass_name = bakepass.pass_name
+        passFilter = {'NONE'}
+        if pass_name == "MAT_ID":
+            pass_name = 'DIFFUSE'
+            passFilter = {'COLOR'}
+        if pass_name == 'COMBINED':
+            passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
 
-            bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
-                                width=int(bj.bakeResolution)*aa, height=int(bj.bakeResolution)*aa, margin=dilation,
-                                use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
-                                normal_space=bakepass.nm_space,
-                                normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
-                                save_mode='INTERNAL', use_clear=clear, use_cage=pair.use_cage,
-                                use_split_materials=False, use_automatic_name=False)
-            # self.report({'INFO'},command)
+        aa = int(bake_job.antialiasing)  # antialiasing
+        bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
+                            width=int(bake_job.bakeResolution)*aa, height=int(bake_job.bakeResolution)*aa, margin=dilation,
+                            use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
+                            normal_space=bakepass.nm_space,
+                            normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
+                            save_mode='INTERNAL', use_clear=clear, use_cage=pair.use_cage,
+                            target='IMAGE_TEXTURES',
+                            use_split_materials=False, use_automatic_name=False)
 
-            print("Baking set " + pair.lowpoly + " " + bakepass.pass_name + "  time: " + str(datetime.now() - self.startTime))
+        print("Baking set " + pair.lowpoly + " " + bakepass.pass_name + "  time: " + str(datetime.now() - self.startTime))
 
     def remove_object(self, obj):
         if bpy.data.objects[obj.name]:
@@ -779,7 +760,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         return mat
 
     def cleanup(self):
-
         for obj in bpy.data.scenes["MD_TEMP"].objects:
             self.remove_object(obj)
 
@@ -864,54 +844,45 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
     def execute(self, context):
         bpy.ops.ed.undo_push()
         TotalTime = datetime.now()
-        CyclesBakeSettings = context.scene.cycles_baker_settings
+        cycles_bake_settings = context.scene.cycles_baker_settings
         if self.is_empty_mat(context):
             return {'CANCELLED'}
 
-        for i_job, bj in enumerate(CyclesBakeSettings.bake_job_queue):
-            if bj.activated == True:
-                self.job_index = i_job
-                self.create_render_target()
-                # ensure save path exists
-                if not os.path.exists(bpy.path.abspath(bj.output)):
-                    os.makedirs(bpy.path.abspath(bj.output))
+        active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
+        for bj in active_bj:
+            aa = int(bj.antialiasing)
+            bpy.ops.image.new(name="MDtarget", width=int(bj.bakeResolution)*aa,
+                              height=int(bj.bakeResolution)*aa,
+                              color=(0.0, 0.0, 0.0, 0.0),
+                              alpha=True,
+                              generated_type='BLANK',
+                              float=False)
+            # ensure save path exists
+            if not os.path.exists(bpy.path.abspath(bj.output)):
+                os.makedirs(bpy.path.abspath(bj.output))
 
-                for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not definied
-                    if pair.lowpoly == "" or pair.lowpoly not in bpy.data.objects.keys():
-                        self.report({'INFO'}, 'Lowpoly not found ' + pair.lowpoly)
-                        pair.activated = False
-                    if pair.highpoly == "" or (pair.hp_type=="OBJ" and pair.highpoly not in bpy.data.objects.keys()) or (pair.hp_type=="GROUP" and pair.highpoly not in bpy.data.collections.keys()):
-                        self.report({'INFO'}, 'highpoly not found ' + pair.highpoly)
-                        pair.activated = False
+            for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not definied
+                if pair.lowpoly == "" or pair.lowpoly not in bpy.data.objects.keys():
+                    self.report({'INFO'}, 'Lowpoly not found ' + pair.lowpoly)
+                    pair.activated = False
+                if pair.highpoly == "" or (pair.hp_type=="OBJ" and pair.highpoly not in bpy.data.objects.keys()) or (pair.hp_type=="GROUP" and pair.highpoly not in bpy.data.collections.keys()):
+                    self.report({'INFO'}, 'highpoly not found ' + pair.highpoly)
+                    pair.activated = False
 
-                import sys
-                # try:
-                self.scene_copy()  # we export temp scene copy
-                # except: # to prevent addon crash while temp_scene is created, delete tems scene after exeption
-                #     e = sys.exc_info()[0]
-                #     self.report({'ERROR'},"Error while exporting scene: "+str(e)+"\n") #or 'Error' ?
-                #     print( "Error while exporting scene: "+str(e)+"\n" )
-                #     self.cleanup() #delete scene
-                #     return
-                comp_pass_sum_time = timedelta(microseconds=-1)
-                for i_pass, bakepass in enumerate(bj.bake_pass_list):
-                    if bakepass.activated == True:
-                        self.pass_index = i_pass
-                        for i_pair, pair in enumerate(bj.bake_pairs_list):
-                            self.pair_index = i_pair
-                            self.select_hi_low()
-                            self.bake_pair_pass()
-                            # self.cleanup_render_target()
-                        if len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0:
-                            comp_passes_sub = datetime.now()
-                            self.compo_nodes_mergePassImgs()
-                            comp_pass_sum_time += datetime.now() - comp_passes_sub
-                self.cleanup()  # delete scene
-        # merge images from pass into one
+            self.scene_copy(bj)  # we export temp scene copy
+
+            for bakepass in bj.bake_pass_list:
+                if bakepass.activated:
+                    for pair in bj.bake_pairs_list:
+                        self.select_hi_low(bj, pair)
+                        self.bake_pair_pass(bj, bakepass, pair)
+                    if len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0:
+                        self.compo_nodes_mergePassImgs(bj, bakepass)
+            self.cleanup()  # delete scene
+
         bpy.data.images["MDtarget"].user_clear()
         bpy.data.images.remove(bpy.data.images["MDtarget"])
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
-        print(f"Cycles Comping pases time: {comp_pass_sum_time.seconds} sec")
         # self.playFinishSound()
         bpy.ops.ed.undo() #TODO: Hack to fix second Bake. Fix if possible
 
