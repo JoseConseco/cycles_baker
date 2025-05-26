@@ -37,6 +37,8 @@ from os import path
 from bpy.props import *
 from mathutils import Vector
 from datetime import datetime
+from pathlib import Path
+from os.path import exists
 
 import gpu
 import numpy as np
@@ -263,7 +265,6 @@ class CB_OT_ImageDilate(bpy.types.Operator):
 
         # dillated = self.img_dillate(img_arr,  in_img.size[0], self.repeat)  # only R channel
         dillated = self.inpaint_tangents(img_arr)  # only R channel
-        final = dillated  # fill back
 
         if "Dilated" not in bpy.data.images.keys():
             bpy.data.images.new("Dilated", width=in_img.size[0], height=in_img.size[0], alpha=False, float_buffer=False)
@@ -452,24 +453,19 @@ class CyclesBakeSettings(bpy.types.PropertyGroup):
 def convertCurveToGeo(curve, scene):
     if curve.type == 'CURVE' and (curve.data.bevel_depth != 0 or curve.data.bevel_object is not None):  # for converting curve to geo
         mesh = curve.to_mesh(scene, True, 'RENDER')
-        ObjMeshFromCurve = bpy.data.objects.new('DupaBla', mesh)
-        scene.collection.objects.link(ObjMeshFromCurve)
-        ObjMeshFromCurve.matrix_world = curve.matrix_world
-        return ObjMeshFromCurve
+        obj = bpy.data.objects.new('DupaBla', mesh)
+        scene.collection.objects.link(obj)
+        obj.matrix_world = curve.matrix_world
+        return obj
     return None
 
 
 class CB_OT_CyclesBakeOp(bpy.types.Operator):
     bl_idname = "cycles.bake"
     bl_label = "Cycles Bake"
+    bl_description = "Bake selected pairs of highpoly-lowpoly objects with Cycles"
     bl_options = {'REGISTER', 'UNDO'}
 
-    job_index: bpy.props.IntProperty()
-    pass_index: bpy.props.IntProperty()
-    pair_index: bpy.props.IntProperty()
-    bake_all: bpy.props.BoolProperty()
-    bake_target: bpy.props.StringProperty()
-    normalPassIndex = 99  # helper for curvature map - bake curv ony if curvPassIndex>normalPassIndex
     startTime = None
     baseMaterialList = []
 
@@ -695,7 +691,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].hide_render = False
                 bpy.data.scenes["MD_TEMP"].objects[pair.cage + "_MD_TMP"].select_set( True)
 
-    def bake_pair_pass(self, bake_job, bakepass, pair):
+    def bake_pair_pass(self, bake_job, bakepass, pair, clear=True):
         if not pair.activated:
             return
         self.create_temp_node(pair)
@@ -709,7 +705,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         if bakepass.pass_name == "AO":
             bpy.data.scenes["MD_TEMP"].cycles.samples = bakepass.samples
             bpy.data.worlds["MD_TEMP"].light_settings.distance = bakepass.ao_distance
-        clear = self.pair_index == 0
 
         front = sorted([0, bake_job.frontDistance * pair.front_distance_modulator, 1])[1]  # clamp to 0-1 range trick
         pass_name = bakepass.pass_name
@@ -872,10 +867,12 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             self.scene_copy(bj)  # we export temp scene copy
 
             for bakepass in bj.bake_pass_list:
+                clear = True
                 if bakepass.activated:
                     for pair in bj.bake_pairs_list:
                         self.select_hi_low(bj, pair)
-                        self.bake_pair_pass(bj, bakepass, pair)
+                        self.bake_pair_pass(bj, bakepass, pair, clear)
+                        clear = False  # do not clear image for next pair
                     if len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0:
                         self.compo_nodes_mergePassImgs(bj, bakepass)
             self.cleanup()  # delete scene
@@ -1288,17 +1285,8 @@ class CB_OT_CageMaker(bpy.types.Operator):
         return {'FINISHED'}
 
 
-import time
-
-loadStart = 0
-
-
-from pathlib import Path
-from os.path import exists
-
 
 def abs_file_path(filePath):
-    """Retuns absolute file path, using resolve (removes //..//"""
     abspathToFix = Path(bpy.path.abspath(filePath))  # crappy format like c:\\..\\...\\ddada.fbx
     if not exists(str(abspathToFix)):
         return filePath
@@ -1374,12 +1362,11 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                 mat = bpy.data.materials.new(name=bj.name)
                 mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
             obList = []
-            for i_pair, pair in enumerate(bj.bake_pairs_list):
+            for pair in bj.bake_pairs_list:
                 if pair.lowpoly in bpy.data.objects.keys():  # create group for hipoly
                     obList.append(bpy.data.objects[pair.lowpoly])
 
                 for obj in obList:
-                    # if obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None):
                     if obj.type == "MESH":
                         self.attachCyclesmaterial(obj, bj_i)
             if len(obList) == 0:
