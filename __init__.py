@@ -642,11 +642,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                             ObjMeshFromCurve = convertCurveToGeo(hi_poly_obj, bpy.data.scenes['MD_TEMP'])
                             if ObjMeshFromCurve is not None:
                                 hi_collection.objects.link(ObjMeshFromCurve)
-                        # isAlreadyInHP_Group = False
-                        # for objGroup in hi_poly_obj.users_collection:
-                        #     if objGroup == hi_collection:
-                        #         isAlreadyInHP_Group = True
-                        #         break
                         hi_collection.objects.link(hi_poly_obj)
                     bpy.data.scenes["MD_TEMP"].collection.children.link(hi_collection)
 
@@ -658,37 +653,33 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             for obj in tmp_scn.objects:
                 obj.hide_render = True
             # make selections, ensure visibility
-            enviroGroupName = ''
             bpy.ops.object.select_all(action='DESELECT')
             for bakepass in bj.bake_pass_list:
                 if bakepass.environment_group != "":  # bake enviro objects too
-                    enviroGroupName = bakepass.environment_group
                     if bakepass.environment_obj_vs_group == "GROUP":
                         for obj in bpy.data.collections[bakepass.environment_group + "_MD_TMP"].objects:
                             obj.hide_render = False
                             obj.select_set(True)
                     else:
-                        EnviroObj = tmp_scn.objects[bakepass.environment_group + "_MD_TMP"]
-                        EnviroObj.hide_render = False
-                        EnviroObj.select_set( True)
+                        enviro_obj = tmp_scn.objects[bakepass.environment_group + "_MD_TMP"]
+                        enviro_obj.hide_render = False
+                        enviro_obj.select_set( True)
 
             print("selected  enviro group " + pair.lowpoly)
 
-            # make selections, ensure visibility
             if pair.highpoly != "":
                 for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
                     if obj.type == 'MESH':
                         obj.hide_render = False
                         obj.select_set( True)
 
-            # lowpoly visibility
             lowpoly_obj = tmp_scn.objects[pair.lowpoly + "_MD_TMP"]
             lowpoly_obj.hide_viewport = False
             lowpoly_obj.hide_select = False
             lowpoly_obj.hide_render = False
             lowpoly_obj.select_set( True)
             bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = lowpoly_obj
-            # cage visibility
+
             if pair.use_cage and pair.cage != "":
                 bpy.ops.object.select_all(action='DESELECT')
                 cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
@@ -698,6 +689,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 cage_obj.select_set( True)
 
     def bake_pair_pass(self, bake_job, bakepass, pair, clear=True):
+        # TODO: issue for AO - alpha from first bake is overwritten by second bake... maybe cache? then add alpha on each step?
         if not pair.activated:
             return
         self.create_temp_node(pair)
