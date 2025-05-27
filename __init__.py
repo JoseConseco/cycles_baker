@@ -55,7 +55,7 @@ Verts = None
 Normals = None
 Indices = None
 def draw_cage_callback(self, context):
-    if not self.front_distance_modulator_draw or not self.lowpoly:
+    if not self.draw_front_dist or not self.lowpoly:
         return
     low_poly = bpy.data.objects[self.lowpoly]
     global Verts, Normals, Indices
@@ -92,7 +92,7 @@ def draw_cage_callback(self, context):
         gpu.state.blend_set('ALPHA')
         gpu.state.face_culling_set('BACK')
 
-        face_color = (0, 0.8, 0, 0.5) if self.front_distance_modulator_draw else (0.8, 0, 0, 0.5)
+        face_color = (0, 0.8, 0, 0.5) if self.draw_front_dist else (0.8, 0, 0, 0.5)
 
         with gpu.matrix.push_pop():
             gpu.matrix.multiply_matrix(low_poly.matrix_world)
@@ -134,7 +134,7 @@ handleDrawRayDistance = []
 
 class CyclesBakePair(bpy.types.PropertyGroup):
     def drawCage(self, context):
-        if self.front_distance_modulator_draw:
+        if self.draw_front_dist:
             if handleDrawRayDistance:
                 bpy.types.SpaceView3D.draw_handler_remove(handleDrawRayDistance[0], 'WINDOW')
 
@@ -154,7 +154,7 @@ class CyclesBakePair(bpy.types.PropertyGroup):
     use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False)
     cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
     front_distance_modulator: bpy.props.FloatProperty( name="Front distance modulator", description="", default=1.0, min=0, max=10, subtype='FACTOR')
-    front_distance_modulator_draw: bpy.props.BoolProperty( name="Draw Front distance", description="", default=False, update=drawCage)
+    draw_front_dist: bpy.props.BoolProperty( name="Draw Front distance", description="", default=False, update=drawCage)
     no_materials: bpy.props.BoolProperty(name="No Materials", default=False)
 
 
@@ -1036,7 +1036,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
                     if not pair.use_cage:
                         subrow.prop(pair, 'front_distance_modulator', expand=True)
-                        subrow.prop(pair, 'front_distance_modulator_draw', icon='MOD_THICKNESS', icon_only=True, expand=True)
+                        subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
                     else:
                         subrow.prop_search(pair, "cage", bpy.context.scene, "objects")
                         oper = subrow.operator("cyclesbake.cage_maker", text="", icon="OBJECT_DATAMODE")
