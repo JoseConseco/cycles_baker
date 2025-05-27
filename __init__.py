@@ -769,8 +769,23 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
     # empty mat search function
     def is_empty_mat(self, context):
-        CyclesBakeSettings = bpy.context.scene.cycles_baker_settings
-        for bj in CyclesBakeSettings.bake_job_queue:
+        pink_mat = bpy.data.materials.get("TMP_MissingMaterial")
+        if not pink_mat:
+            pink_mat = bpy.data.materials.new(name="TMP_MissingMaterial")
+            pink_mat.diffuse_color = (1, 0.0, 0.2, 1.0)
+            pink_mat.use_nodes = False
+
+        def assign_pink_mat(obj):
+            if obj.type == 'MESH':
+                if len(obj.material_slots) == 0 or obj.material_slots[0].material is None:
+                    obj.data.materials.append(pink_mat)
+                    self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material! Assigning pink mat')
+                    print("Object: " + obj.name + " has no Material! Assigning pink mat")
+                    return True
+            return False
+
+        bake_settings = context.scene.cycles_baker_settings
+        for bj in bake_settings.bake_job_queue:
             active_pair = [pair for pair in bj.bake_pairs_list if pair.activated]
             for pair in active_pair:
                 if pair.highpoly != "":
@@ -778,9 +793,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                         for obj in bpy.data.collections[pair.highpoly].objects:
                             if obj.type == 'EMPTY' and obj.instance_collection:
                                 continue
-                            if obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None):
-                                self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material!')
-                                return True
+                            assign_pink_mat(obj)
                     else:
                         hipolyObj = bpy.data.objects.get(pair.highpoly)
                         if not hipolyObj:
@@ -794,9 +807,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                                 self.MaterialCheckedGroupNamesList.clear()
                                 return emptyMatInGroup
                         # non empty objs
-                        elif hipolyObj.type == "MESH" and (len(hipolyObj.material_slots) == 0 or hipolyObj.material_slots[0].material is None):
-                            self.report({'INFO'}, 'Object: ' + hipolyObj.name + ' has no Material!')
-                            return True
+                        assign_pink_mat(hipolyObj)
                 else:  # if highpoly empty
                     print("No highpoly defined. Disabling pair")
                     pair.activated = False
@@ -831,7 +842,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         return False
 
     def execute(self, context):
-        bpy.ops.ed.undo_push()
+        # bpy.ops.ed.undo_push()
         TotalTime = datetime.now()
         cycles_bake_settings = context.scene.cycles_baker_settings
         if self.is_empty_mat(context):
@@ -875,7 +886,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         bpy.data.images.remove(bpy.data.images["MDtarget"])
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
         # self.playFinishSound()
-        bpy.ops.ed.undo() #TODO: Hack to fix second Bake. Fix if possible
+        # bpy.ops.ed.undo() #TODO: Hack to fix second Bake. Fix if possible
 
         return {'FINISHED'}
 
