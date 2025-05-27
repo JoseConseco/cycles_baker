@@ -510,9 +510,12 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         targetimage.save()
 
         if path.isfile(imgPath):  # load bake from disk
-            img = next((im for im in bpy.data.images if im.filepath == imgPath), None)
-            if img:
-                img.reload()  # reload done in baking
+            img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
+            if img_users:
+                for img in img_users:
+                    if img.name == "MDtarget":
+                        continue
+                    img.reload()  # reload done in baking
             else:
                 img = bpy.data.images.load(filepath=imgPath)
 
