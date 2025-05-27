@@ -44,56 +44,66 @@ import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
 
+def get_front_distance(bj, pair):
+    low_poly = bpy.data.objects[pair.lowpoly]
+    objBBoxSize = Vector(low_poly.dimensions[:]).length/2 if bj.relativeToBbox else 1
+    front = bj.frontDistance * pair.front_distance_modulator * objBBoxSize
+    return max(front, 0)
 
 shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+Verts = None
+Normals = None
+Indices = None
 def draw_cage_callback(self, context):
-    frontRayDistanceMultiplier = self.front_distance_modulator
     if not self.front_distance_modulator_draw or not self.lowpoly:
         return
-    obj = bpy.data.objects[self.lowpoly]
-    if obj.type == 'MESH' and context.mode == 'OBJECT':
+    low_poly = bpy.data.objects[self.lowpoly]
+    global Verts, Normals, Indices
+    if low_poly.type == 'MESH' and context.mode == 'OBJECT':
         for bj in bpy.data.scenes['Scene'].cycles_baker_settings.bake_job_queue:
             for pair in bj.bake_pairs_list:
                 if pair == self:
                     parentBakeJob = bj
                     break
 
-        objBBoxSize = Vector(obj.dimensions[:]).length if parentBakeJob.relativeToBbox else 1
-        frontDistance = self.front_distance_modulator
+        front = get_front_distance(parentBakeJob, self)
 
-        mesh = bpy.context.active_object.data
+        mesh = low_poly.data
         vert_count = len(mesh.vertices)
         mesh.calc_loop_triangles()
 
-        mat_np = np.array(obj.matrix_world, 'f')
-        vertices = np.empty((vert_count, 3), 'f')
-        normals = np.empty((vert_count, 3), 'f')
-        indices = np.empty((len(mesh.loop_triangles), 3), 'i')
+        # mat_np = np.array(low_poly.matrix_world, 'f')
+        if Verts is None or Verts.shape[0] != vert_count:
+            Vertices = np.empty((vert_count, 3), 'f')
+            Normals = np.empty((vert_count, 3), 'f')
+            Indices = np.empty((len(mesh.loop_triangles), 3), 'i')
 
-        mesh.vertices.foreach_get( "co", np.reshape(vertices, vert_count * 3))
-        mesh.vertices.foreach_get("normal", np.reshape(normals, vert_count * 3))
-        mesh.loop_triangles.foreach_get( "vertices", np.reshape(indices, len(mesh.loop_triangles) * 3))
+        mesh.vertices.foreach_get( "co", Vertices.ravel())
+        mesh.vertices.foreach_get("normal", Normals.ravel())
+        mesh.loop_triangles.foreach_get( "vertices", Indices.ravel())
 
-        vertices = vertices + normals * frontRayDistanceMultiplier * frontDistance / objBBoxSize  # 0,86 to match substance ray distance
+        Vertices = Vertices + Normals * front  # 0,86 to match substance ray distance
 
-        coords_4d = np.ones((vert_count, 4), 'f')
-        coords_4d[:, :-1] = vertices
-        vertices = np.einsum('ij,aj->ai', mat_np, coords_4d)[:, :-1]
+        # old way to transform vertices with matrix
+        # coords_4d = np.ones((vert_count, 4), 'f')
+        # coords_4d[:, :-1] = Vertices
+        # vertices = np.einsum('ij,aj->ai', mat_np, coords_4d)[:, :-1]
 
         gpu.state.blend_set('ALPHA')
         gpu.state.face_culling_set('BACK')
 
         face_color = (0, 0.8, 0, 0.5) if self.front_distance_modulator_draw else (0.8, 0, 0, 0.5)
 
-        shader.bind()
-        shader.uniform_float("color", face_color)
-        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-        batch.draw(shader)
+        with gpu.matrix.push_pop():
+            gpu.matrix.multiply_matrix(low_poly.matrix_world)
+            shader.bind()
+            shader.uniform_float("color", face_color)
+            batch = batch_for_shader(shader, 'TRIS', {"pos": Vertices}, indices=Indices)
+            batch.draw(shader)
 
         # restore gpu defaults
         gpu.state.blend_set('NONE')
         gpu.state.face_culling_set('NONE')
-
 
 
 
@@ -702,7 +712,8 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             bpy.data.scenes["MD_TEMP"].cycles.samples = bakepass.samples
             bpy.data.worlds["MD_TEMP"].light_settings.distance = bakepass.ao_distance
 
-        front = sorted([0, bake_job.frontDistance * pair.front_distance_modulator, 1])[1]  # clamp to 0-1 range trick
+        front = get_front_distance(bake_job, pair)
+
         pass_name = bakepass.pass_name
         passFilter = {'NONE'}
         if pass_name == "MAT_ID":
@@ -1025,7 +1036,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
                     if not pair.use_cage:
                         subrow.prop(pair, 'front_distance_modulator', expand=True)
-                        subrow.prop(pair, 'front_distance_modulator_draw', icon='FORWARD', icon_only=True, expand=True)
+                        subrow.prop(pair, 'front_distance_modulator_draw', icon='MOD_THICKNESS', icon_only=True, expand=True)
                     else:
                         subrow.prop_search(pair, "cage", bpy.context.scene, "objects")
                         oper = subrow.operator("cyclesbake.cage_maker", text="", icon="OBJECT_DATAMODE")
