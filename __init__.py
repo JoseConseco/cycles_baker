@@ -44,7 +44,7 @@ import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
 
-def get_front_distance(bj, pair):
+def get_raycast_distance(bj, pair):
     low_poly = bpy.data.objects[pair.lowpoly]
     objBBoxSize = Vector(low_poly.dimensions[:]).length/2 if bj.relativeToBbox else 1
     front = bj.frontDistance * pair.front_distance_modulator * objBBoxSize
@@ -66,7 +66,7 @@ def draw_cage_callback(self, context):
                     parentBakeJob = bj
                     break
 
-        front = get_front_distance(parentBakeJob, self)
+        front = get_raycast_distance(parentBakeJob, self)
 
         mesh = low_poly.data
         vert_count = len(mesh.vertices)
@@ -214,6 +214,7 @@ batch = batch_for_shader(
 
 
 def add_padding_offscreen(img, img_x, img_y, padding_size, avg_col=(0, 0, 0)):
+    pad_time = datetime.now()
     offscreen = gpu.types.GPUOffScreen(img_x, img_y)
     with offscreen.bind():
         fb = gpu.state.active_framebuffer_get()
@@ -242,6 +243,7 @@ def add_padding_offscreen(img, img_x, img_y, padding_size, avg_col=(0, 0, 0)):
     offscreen.free()
     img.pixels = np.array(color).ravel()/255
     # img.pixels = np.power(np.array(out_buffer)/255, 0.454).ravel().tolist()
+    print("Padding time: ", datetime.now() - pad_time)
 
 
 class CyclesBakerPreferences(bpy.types.AddonPreferences):
@@ -596,23 +598,18 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
     bl_description = "Bake selected pairs of highpoly-lowpoly objects with Cycles"
     bl_options = {'REGISTER', 'UNDO'}
 
-    startTime = None
     baseMaterialList = []
 
-    def create_temp_node(self, pair):
-        bake_mat = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"].active_material
-        if not bake_mat:
-            bake_mat = self.attach_material(bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"])
-        bake_mat.use_nodes = True
-        if "MDtarget" not in bake_mat.node_tree.nodes:
+    def create_bake_mat_and_node(self, pair):
+        low_obj = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
+        bake_mat = self.get_set_first_material_slot(low_obj)
+        imgnode = bake_mat.node_tree.nodes.get('MDtarget')
+        if not imgnode:
             imgnode = bake_mat.node_tree.nodes.new(type="ShaderNodeTexImage")
-            imgnode.image = bpy.data.images["MDtarget"]
             imgnode.name = 'MDtarget'
             imgnode.label = 'MDtarget'
-        else:
-            imgnode = bake_mat.node_tree.nodes['MDtarget']
-            imgnode.image = bpy.data.images["MDtarget"]
 
+        imgnode.image = bpy.data.images["MDtarget"]
         bake_mat.node_tree.nodes.active = imgnode
 
 
@@ -700,6 +697,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         # duplicate the scene
         bpy.ops.scene.new(type='FULL_COPY')
         bpy.context.scene.name = "MD_TEMP"
+        bpy.context.scene.render.engine = "CYCLES"
         # tag the copied obj names with _MD_TMP
         temp_scn = bpy.data.scenes["MD_TEMP"]
         for obj in temp_scn.objects:
@@ -801,19 +799,17 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         # TODO: issue for AO - alpha from first bake is overwritten by second bake... maybe cache? then add alpha on each step?
         if not pair.activated:
             return
-        self.create_temp_node(pair)
-        self.startTime = datetime.now()  # time debug
-        padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
+        self.create_bake_mat_and_node(pair)
+        startTime = datetime.now()  # time debug
         # common params first
         if bakepass.pass_name == "MAT_ID":
             self.pass_material_id_prep()
-        bpy.data.scenes["MD_TEMP"].render.engine = "CYCLES"
         # bpy.data.scenes["MD_TEMP"].cycles.bake_type = bakepass.pass_name
         if bakepass.pass_name == "AO":
             bpy.data.scenes["MD_TEMP"].cycles.samples = bakepass.samples
             bpy.data.worlds["MD_TEMP"].light_settings.distance = bakepass.ao_distance
 
-        front = get_front_distance(bake_job, pair)
+        front_dist = get_raycast_distance(bake_job, pair)
 
         pass_name = bakepass.pass_name
         passFilter = {'NONE'}
@@ -824,16 +820,17 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
 
         aa = int(bake_job.antialiasing)  # antialiasing
+        padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
         bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
                             width=int(bake_job.bakeResolution)*aa, height=int(bake_job.bakeResolution)*aa, margin=0,
-                            use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
+                            use_selected_to_active=True, cage_extrusion=front_dist, cage_object=pair.cage,
                             normal_space=bakepass.nm_space,
                             normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
                             save_mode='INTERNAL', use_clear=False, use_cage=pair.use_cage,
                             target='IMAGE_TEXTURES',
                             use_split_materials=False, use_automatic_name=False)
 
-        print("Baking set " + pair.lowpoly + " " + bakepass.pass_name + "  time: " + str(datetime.now() - self.startTime))
+        print("Baking set " + pair.lowpoly + " " + bakepass.pass_name + "  time: " + str(datetime.now() - startTime))
 
     def remove_object(self, obj):
         if bpy.data.objects[obj.name]:
@@ -851,16 +848,23 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 obj.user_clear()
                 bpy.data.objects.remove(obj)
 
-    def attach_material(self, obj):
-        mat = bpy.data.materials.get("EmptyMat")
-        if mat is None:
-            # create materialD
-            mat = bpy.data.materials.new(name="EmptyMat")
-            mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1.0)
-        obj.data.materials.append(mat)
-        if bpy.context.scene.render.engine == 'CYCLES':
-            obj.data.materials[0].use_nodes = True
-        return mat
+    @staticmethod
+    def get_set_first_material_slot(obj):
+        first_slot_mat = obj.material_slots[0].material if len(obj.material_slots) > 0 else None
+        if first_slot_mat:
+            first_slot_mat.use_nodes = True # be sure it has nodes for setting active img texture
+            return first_slot_mat
+        low_bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
+        if low_bake_mat is None:
+            low_bake_mat = bpy.data.materials.new(name="CyclesBakeMat_MD_TEMP")
+            # low_bake_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1.0)
+        low_bake_mat.use_nodes = True
+        # If no material slots exist, create one
+        if len(obj.material_slots) == 0:
+            obj.data.materials.append(None)
+        # Assign bake material to first slot
+        obj.material_slots[0].material = low_bake_mat
+        return low_bake_mat
 
     def cleanup(self):
         for obj in bpy.data.scenes["MD_TEMP"].objects:
@@ -962,13 +966,11 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
         active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
         for bj in active_bj:
-            aa = int(bj.antialiasing)
-            img_res = int(bj.bakeResolution)
             # ensure save path exists
             if not os.path.exists(bpy.path.abspath(bj.output)):
                 os.makedirs(bpy.path.abspath(bj.output))
 
-            for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not definied
+            for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not defined
                 if pair.lowpoly == "" or pair.lowpoly not in bpy.data.objects.keys():
                     self.report({'INFO'}, 'Lowpoly not found ' + pair.lowpoly)
                     pair.activated = False
@@ -978,11 +980,11 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
             self.scene_copy(bj)  # we export temp scene copy
 
+            aa = int(bj.antialiasing)
+            img_res = int(bj.bakeResolution)
             padding = bj.padding_size if bj.padding_mode == 'FIXED' else int(img_res/64)
-            active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated]
 
-            #   debug and print img size
-
+            active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated and len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0]
             for bakepass in active_bake_passes:
                 render_target = bpy.data.images.new("MDtarget",
                                     width=img_res*aa,
@@ -993,25 +995,24 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 for pair in bj.bake_pairs_list:
                     self.select_hi_low(bj, pair)
                     self.bake_pair_pass(bj, bakepass, pair)
-                if len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0:
-                    add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
 
-                    render_target.scale(img_res, img_res)
-                    # bpy.ops.render.render(write_still=True, scene="MD_COMPO")
-                    imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
-                    render_target.filepath_raw = imgPath
-                    render_target.save()
+                add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
 
-                    render_target.user_clear()
-                    bpy.data.images.remove(render_target)
+                render_target.scale(img_res, img_res)
+                imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
+                render_target.filepath_raw = imgPath
+                render_target.save()
 
-                    if path.isfile(imgPath):  # load bake from disk
-                        img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
-                        if img_users:
-                            for img in img_users:
-                                img.reload()  # reload done in baking
-                        else:
-                            img = bpy.data.images.load(filepath=imgPath)
+                # render_target.user_clear()
+                bpy.data.images.remove(render_target)
+
+                if path.isfile(imgPath):  # load bake from disk
+                    img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
+                    if img_users:
+                        for img in img_users:
+                            img.reload()  # reload done in baking
+                    else:
+                        img = bpy.data.images.load(filepath=imgPath)
 
             self.cleanup()  # delete scene
 
@@ -1047,9 +1048,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Cycles Baking"
 
-    # @classmethod
-    # def poll(cls, context):
-    #     return bpy.context.scene.render.engine == "CYCLES"
 
     def draw(self, context):
         layout = self.layout
