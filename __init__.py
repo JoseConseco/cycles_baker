@@ -507,16 +507,13 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 material.node_tree.nodes["Diffuse BSDF"].inputs["Color"].default_value = \
                     [material.diffuse_color[0], material.diffuse_color[1], material.diffuse_color[2], 1]
 
-    def compo_nodes_mergePassImgs(self, bj, bakepass):
-        if not bakepass.activated:
-            return
+    def resize_and_reload_img(self, bj, bakepass):
         targetimage = bpy.data.images["MDtarget"]
         targetimage.scale(int(bj.bakeResolution), int(bj.bakeResolution))
         # bpy.ops.render.render(write_still=True, scene="MD_COMPO")
         imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
         targetimage.filepath_raw = imgPath
 
-        targetimage.scale(int(bj.bakeResolution), int(bj.bakeResolution))
         targetimage.save()
 
         if path.isfile(imgPath):  # load bake from disk
@@ -688,7 +685,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 cage_obj.hide_render = False
                 cage_obj.select_set( True)
 
-    def bake_pair_pass(self, bake_job, bakepass, pair, clear=True):
+    def bake_pair_pass(self, bake_job, bakepass, pair):
         # TODO: issue for AO - alpha from first bake is overwritten by second bake... maybe cache? then add alpha on each step?
         if not pair.activated:
             return
@@ -720,7 +717,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                             use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
                             normal_space=bakepass.nm_space,
                             normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
-                            save_mode='INTERNAL', use_clear=clear, use_cage=pair.use_cage,
+                            save_mode='INTERNAL', use_clear=False, use_cage=pair.use_cage,
                             target='IMAGE_TEXTURES',
                             use_split_materials=False, use_automatic_name=False)
 
@@ -844,8 +841,8 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         self.MaterialCheckedGroupNamesList.append(empty.instance_collection.name)  # or no empty mat in group
         return False
 
+
     def execute(self, context):
-        # bpy.ops.ed.undo_push()
         TotalTime = datetime.now()
         cycles_bake_settings = context.scene.cycles_baker_settings
         if self.is_empty_mat(context):
@@ -854,12 +851,12 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
         for bj in active_bj:
             aa = int(bj.antialiasing)
-            bpy.ops.image.new(name="MDtarget", width=int(bj.bakeResolution)*aa,
-                              height=int(bj.bakeResolution)*aa,
-                              color=(0.0, 0.0, 0.0, 0.0),
-                              alpha=True,
-                              generated_type='BLANK',
-                              float=False)
+            render_target = bpy.data.images.new("MDtarget",
+                                width=int(bj.bakeResolution)*aa,
+                                height=int(bj.bakeResolution)*aa,
+                                alpha=True,
+                                float_buffer=False)
+            render_target.generated_color = (0.0, 0.0, 0.0, 0.0)  # black transparent
             # ensure save path exists
             if not os.path.exists(bpy.path.abspath(bj.output)):
                 os.makedirs(bpy.path.abspath(bj.output))
@@ -874,22 +871,20 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
             self.scene_copy(bj)  # we export temp scene copy
 
-            for bakepass in bj.bake_pass_list:
-                clear = True
-                if bakepass.activated:
-                    for pair in bj.bake_pairs_list:
-                        self.select_hi_low(bj, pair)
-                        self.bake_pair_pass(bj, bakepass, pair, clear)
-                        clear = False  # do not clear image for next pair
-                    if len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0:
-                        self.compo_nodes_mergePassImgs(bj, bakepass)
+            active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated]
+            for bakepass in active_bake_passes:
+                for pair in bj.bake_pairs_list:
+                    self.select_hi_low(bj, pair)
+                    self.bake_pair_pass(bj, bakepass, pair)
+                if len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0:
+                    self.resize_and_reload_img(bj, bakepass)
             self.cleanup()  # delete scene
 
-        bpy.data.images["MDtarget"].user_clear()
-        bpy.data.images.remove(bpy.data.images["MDtarget"])
+            render_target.user_clear()
+            bpy.data.images.remove(render_target)
+
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
         # self.playFinishSound()
-        # bpy.ops.ed.undo() #TODO: Hack to fix second Bake. Fix if possible
 
         return {'FINISHED'}
 
