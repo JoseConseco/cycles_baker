@@ -265,7 +265,8 @@ class CB_OT_ImageDilate(bpy.types.Operator):
         img_arr = np.array(in_img.pixels, dtype=np.float16).reshape(in_img.size[0], in_img.size[0], 4)  # RGBA
 
         # dillated = self.img_dillate(img_arr,  in_img.size[0], self.repeat)  # only R channel
-        dillated = self.inpaint_tangents(img_arr)  # only R channel
+        dillated = self.inpaint_tangents(img_arr)
+        # dillated = self.executeSlow(img_arr)
 
         if "Dilated" not in bpy.data.images.keys():
             bpy.data.images.new("Dilated", width=in_img.size[0], height=in_img.size[0], alpha=False, float_buffer=False)
@@ -280,13 +281,7 @@ class CB_OT_ImageDilate(bpy.types.Operator):
 
 
 
-    def executeSlow(self, context): #slow but nice looking lin interpol on masked data
-        if not self.image_name:
-            return {'CANCELLED'}
-
-        in_img = bpy.data.images[self.image_name]
-        img_arr = np.array(in_img.pixels, dtype=np.float16).reshape(in_img.size[0], in_img.size[0], 4)  # RGBA
-
+    def executeSlow(self, img_arr): #slow but nice looking lin interpol on masked data
         alpha = img_arr[:, :, 3] < 0.5  # True when masked - ignore
         red = np.ma.array(img_arr[:, :, 0], mask=alpha)
         # dillated = self.img_dillate(red,alpha, in_img.size[0], self.repeat)  # only R channel
@@ -302,15 +297,10 @@ class CB_OT_ImageDilate(bpy.types.Operator):
 
         final = np.apply_along_axis(my_func, 0, red)
 
-        if "out" not in bpy.data.images.keys():
-            bpy.data.images.new("out", width=in_img.size[0], height=in_img.size[0], alpha=False, float_buffer=False)
-
-        out_img = bpy.data.images['out']
-        out_img.scale(in_img.size[0], in_img.size[0])
         # img_arr = np.power(img_arr, 1 / 2.2)
         toRGB = np.repeat(final[:, :, None], 4, axis=2)
-        out_img.pixels = toRGB.ravel()  # flatten the array to 1 dimension and write it to testImg pixels
-        return {"FINISHED"}
+        # out_img.pixels = toRGB.ravel()  # flatten the array to 1 dimension and write it to testImg pixels
+        return toRGB
 
 class CyclesBakePass(bpy.types.PropertyGroup):
     def upSuffix(self, context):
@@ -402,13 +392,12 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
 class CyclesBakeJob(bpy.types.PropertyGroup):
 
-    def refreshRenderChange(self, context):
-        for pairs in self.bake_pairs_list:
-            pairs.activated = self.refreshRender
+    def update_pad(self, context):
+        if self.padding_mode == 'AUTO':
+            self['padding_size'] = int(int(self.bakeResolution)/64)
+
 
     activated: bpy.props.BoolProperty(name="Activated", description="Disable baking set of high-low pairs", default=True)
-    refreshRender: bpy.props.BoolProperty(name="Refresh Render", description="Render on/off helper button ",
-                                          default=True, update=refreshRenderChange)
     expand: bpy.props.BoolProperty(name="Expand", default=True)
     bakeResolution: bpy.props.EnumProperty(name="Resolution", default="1024",
                                            items=(("128", "128x128", ""),
@@ -423,8 +412,12 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
                                                 ("2", "2x", ""),
                                                 ("4", "4x", "")))
 
-    dilation: bpy.props.FloatProperty(name="Dilation", description="Width of the dilation post-process (in percent of image size). Default = 0.007.",
-                                      default=0.007, min=0.00, soft_max=0.01, subtype='PERCENTAGE')
+    padding_mode: bpy.props.EnumProperty(name='Padding Mode', description='Prevents background color beeding into texture',
+                                               items=[
+                                                   ('AUTO', 'Automatic Padding', 'Padding will be set to around 1% of texture size'),
+                                                   ('FIXED', 'Fixed Padding', 'Set padding size by hand')
+                                               ], default='AUTO', update=update_pad)
+    padding_size: bpy.props.IntProperty(name='Padding', description='Add color margin around bake result (0 - disabled)\nWarning - may be slow on big images', default = 10, min=0, soft_max=40)
 
     output: bpy.props.StringProperty(name='File path',
                                      description='The path of the output image.',
@@ -691,7 +684,8 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             return
         self.create_temp_node(pair)
         self.startTime = datetime.now()  # time debug
-        dilation = int(bake_job.dilation * int(bake_job.bakeResolution))
+        # dilation = int(bake_job.dilation * int(bake_job.bakeResolution))
+        dilation = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
         # common params first
         if bakepass.pass_name == "MAT_ID":
             self.pass_material_id_prep()
@@ -939,9 +933,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
                 row.prop(bj, "expand", icon="TRIA_RIGHT", icon_only=True, text=bj.name, emboss=False)
 
                 if bj.activated:
-                    row.prop(bj, "activated", icon_only=True, icon="COLOR_GREEN", emboss=False)
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
                 else:
-                    row.prop(bj, "activated", icon_only=True, icon="COLOR_RED", emboss=False)
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
 
                 oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
                 oper.bj_i = job_i
@@ -951,9 +945,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
                 row.prop(bj, "expand", icon="TRIA_DOWN", icon_only=True, text=bj.name, emboss=False)
 
                 if bj.activated:
-                    row.prop(bj, "activated", icon_only=True, icon="COLOR_GREEN", emboss=False)
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
                 else:
-                    row.prop(bj, "activated", icon_only=True, icon="COLOR_RED", emboss=False)
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_ON", emboss=False)
 
                 oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
                 oper.bj_i = job_i
@@ -972,8 +966,14 @@ class CB_PT_SDPanel(bpy.types.Panel):
                 row.prop(bj, 'relativeToBbox', text="", icon="GRID")
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
-                row.prop(bj, 'dilation', text="Dilation")
+                split = row.split(factor=0.70, align=True)
+                split.prop(bj, 'padding_mode', text='')
+                if bj.padding_mode == 'FIXED':
+                    split.prop(bj, 'padding_size', text='')
+                else:
+                    sub_r = split.row(align=True)
+                    sub_r.enabled = False
+                    sub_r.prop(bj, 'padding_size', text='')
 
                 row = layout.row(align=True)
                 row.alignment = 'EXPAND'
@@ -985,10 +985,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                 row = layout.row(align=True)
                 row.alignment = 'EXPAND'
-                masterBox = layout.box()
-                row = masterBox.row(align=True)
-                row.label(text='Helpers')
-                row.prop(bj, "refreshRender", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
                 for pair_i, pair in enumerate(bj.bake_pairs_list):
                     row = layout.column(align=True).row(align=True)
                     row.alignment = 'EXPAND'
@@ -1312,10 +1308,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             self.shiftClicked = True
         return self.execute(context)
 
-    def attachCyclesmaterial(self, obj, bj_i):
-        cycles_bake_settings = bpy.context.scene.cycles_baker_settings
-        bj = cycles_bake_settings.bake_job_queue[bj_i]
-        mat = bpy.data.materials.get(bj.name)
+    def attachCyclesmaterial(self, obj, mat):
         if len(obj.material_slots) == 0:
             obj.data.materials.append(mat)
         else:
@@ -1326,12 +1319,12 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
     def execute(self, context):
         cycles_bake_settings = bpy.context.scene.cycles_baker_settings
         if self.shiftClicked:
-            bjList = [(i, bj) for i, bj in enumerate(cycles_bake_settings.bake_job_queue) if bj.activated]
+            bjList = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
         else:
-            bjList = [(self.bj_i, cycles_bake_settings.bake_job_queue[self.bj_i])]
+            bjList = [cycles_bake_settings.bake_job_queue[self.bj_i],]
         addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
         imagesFromBakePasses = []
-        for bj_i, bj in bjList:
+        for bj in bjList:
             imagesFromBakePasses.clear()
             for bakepass in bj.bake_pass_list:  # refresh or load images from bakes
                 if bakepass.activated:
@@ -1360,21 +1353,23 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             bpy.context.space_data.shading.type = 'MATERIAL'
 
             mat = bpy.data.materials.get(bj.name)
-            if mat is None:
+            if not mat:
                 mat = bpy.data.materials.new(name=bj.name)
                 mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
-            obList = []
+            mat.use_nodes = True
+
+            obj_list = []
             for pair in bj.bake_pairs_list:
                 if pair.lowpoly in bpy.data.objects.keys():  # create group for hipoly
-                    obList.append(bpy.data.objects[pair.lowpoly])
+                    obj_list.append(bpy.data.objects[pair.lowpoly])
 
-                for obj in obList:
-                    if obj.type == "MESH":
-                        self.attachCyclesmaterial(obj, bj_i)
-            if len(obList) == 0:
+            for obj in obj_list:
+                if obj.type == "MESH":
+                    self.attachCyclesmaterial(obj, mat)
+            if len(obj_list) == 0:
                 continue
 
-            matNodeTree = bpy.data.materials.get(bj.name).node_tree
+            matNodeTree = mat.node_tree
             for node in matNodeTree.nodes:
                 matNodeTree.nodes.remove(node)
             links = matNodeTree.links
