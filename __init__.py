@@ -106,6 +106,141 @@ def draw_cage_callback(self, context):
         gpu.state.face_culling_set('NONE')
 
 
+# Process baked texture - add padding, to it
+#############################################
+
+vert_out = gpu.types.GPUStageInterfaceInfo("my_bake_padding")
+vert_out.smooth('VEC2', "uvInterp")
+
+shader_info = gpu.types.GPUShaderCreateInfo()
+
+shader_info.push_constant('VEC2', "img_size") # or 'INT' or 'UINT' ?
+shader_info.push_constant('INT', "radius") # or vec2 ?
+shader_info.push_constant('VEC3', "bg_color")
+shader_info.push_constant('BOOL', "solid_bg")
+
+
+shader_info.sampler(0, 'FLOAT_2D', "image")
+shader_info.vertex_in(0, 'VEC2', "position")
+shader_info.vertex_in(1, 'VEC2', "uv")
+shader_info.vertex_out(vert_out)
+shader_info.fragment_out(0, 'VEC4', "FragColor")
+
+
+shader_info.vertex_source("""
+// in vec2 position;
+// in vec2 uv;
+
+// out vec2 uvInterp;
+
+void main()
+{
+    uvInterp = uv;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+""")
+
+shader_info.fragment_source("""
+// uniform sampler2D image;
+// uniform vec2 img_size;
+// uniform int radius;
+// uniform vec3 bg_color;
+// uniform bool solid_bg;
+
+// in vec2 uvInterp;
+
+// out vec4 FragColor;
+
+vec4 blend_premultiplied(vec4 imgA, vec4 imgB){
+  vec4 out_img = vec4(imgA.rgb * imgA.a, imgA.a) + (1.-imgA.a)*vec4(imgB.rgb * imgB.a, imgB.a); //* pretultiplied ver
+  out_img.rgb = out_img.rgb / out_img.a;
+  return out_img;
+}
+
+// vec2[] offset = vec2[](vec2(-1,0), vec2(1,0), vec2(0,1), vec2(0,-1), vec2(1,1), vec2(-1,1), vec2(1,-1), vec2(-1,-1));
+
+void main() {
+    vec2 uv = uvInterp;
+    vec4 img = texture(image, uv);
+    vec4 out_img = vec4(0,0,0,0);
+
+    if (img.a > 0.9){
+        out_img = img;
+    }else{
+        float sample_weight = 0.;
+        for (int r=1; r<=radius; r++){ //sample circle - with sample count ~ rad
+          float sample_cnt = 9.*pow(float(r), .6);
+          for(int i = 0; i < int(sample_cnt); i++){
+            float alpha = 6.28 * float(i) /sample_cnt;
+            vec2 uv_offset = uv + vec2(cos(alpha), sin(alpha))/img_size*float(r);
+            if (uv_offset.x<0. || uv_offset.x>1. || uv_offset.y<0. || uv_offset.y>1.) // skip borders
+                break;
+            vec4 img_sample = texture(image, uv_offset);
+            out_img += img_sample*img_sample.a;
+            sample_weight += img_sample.a;
+          }
+          if (sample_weight > 0.4*sample_cnt) // skip outer rad if got enough samples
+              break;
+        }
+        if (sample_weight > 0.)
+            out_img = out_img/float(sample_weight);
+
+        out_img.a = step(0.1, out_img.a);
+        out_img.rgb = mix(bg_color, out_img.rgb, out_img.a); // use original background in black places
+        out_img.rgb = mix(out_img.rgb, img.rgb, img.a); // overlay original image for using alpha
+        if (solid_bg)
+            out_img.a = 1.;
+    }
+    FragColor = vec4(pow(out_img.rgb, vec3(0.4545)), out_img.a);
+
+}
+""")
+
+shader = gpu.shader.create_from_info(shader_info)
+del vert_out
+del shader_info
+
+# shader = gpu.types.GPUShader(vertex_shader, fragment_shader)
+batch = batch_for_shader(
+    shader, 'TRI_FAN',
+    {
+        "position": [ [-1,-1], [1,-1], [1,1], [-1,1] ],
+#        "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1)),
+        "uv": [ [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0] ],
+    },
+)
+
+
+def add_padding_offscreen(img, img_x, img_y, padding_size, avg_col=(0, 0, 0)):
+    offscreen = gpu.types.GPUOffScreen(img_x, img_y)
+    with offscreen.bind():
+        fb = gpu.state.active_framebuffer_get()
+        fb.clear(color=(avg_col[0], avg_col[1], avg_col[2], 1.0), depth=1)
+
+        # Generate texture
+        # buffer = img.pixels[:] # works?
+        # pixels = gpu.types.Buffer('FLOAT', len(buffer), buffer)
+        # tex= gpu.types.GPUTexture((img_x, img_y), format='RGBA8', data=pixels)
+        tex = gpu.texture.from_image(img)
+
+        shader.bind()
+        shader.uniform_float("img_size", [img_x, img_y])
+        shader.uniform_int("radius", padding_size)
+        shader.uniform_sampler("image", tex) # should work okk
+        shader.uniform_float("bg_color", np.power(avg_col, 2.2))
+        shader.uniform_bool("solid_bg", [False])
+
+        gpu.state.blend_set("ALPHA") # nicer result
+        gpu.state.depth_test_set("LESS") # nicer result for whatever rease
+        batch.draw(shader)
+        gpu.state.depth_test_set("NONE")
+        gpu.state.blend_set("NONE")
+
+        color = np.array(fb.read_color(0, 0, img_x, img_y, 4, 0, 'UBYTE').to_list())
+    offscreen.free()
+    img.pixels = np.array(color).ravel()/255
+    # img.pixels = np.power(np.array(out_buffer)/255, 0.454).ravel().tolist()
+
 
 class CyclesBakerPreferences(bpy.types.AddonPreferences):
     bl_idname = 'cycles_baker'
@@ -500,24 +635,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 material.node_tree.nodes["Diffuse BSDF"].inputs["Color"].default_value = \
                     [material.diffuse_color[0], material.diffuse_color[1], material.diffuse_color[2], 1]
 
-    def resize_and_reload_img(self, bj, bakepass):
-        targetimage = bpy.data.images["MDtarget"]
-        targetimage.scale(int(bj.bakeResolution), int(bj.bakeResolution))
-        # bpy.ops.render.render(write_still=True, scene="MD_COMPO")
-        imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
-        targetimage.filepath_raw = imgPath
-
-        targetimage.save()
-
-        if path.isfile(imgPath):  # load bake from disk
-            img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
-            if img_users:
-                for img in img_users:
-                    if img.name == "MDtarget":
-                        continue
-                    img.reload()  # reload done in baking
-            else:
-                img = bpy.data.images.load(filepath=imgPath)
 
     @staticmethod
     def copyModifierParentsSetup(groupObjs, cloned_obj_map):
@@ -684,8 +801,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             return
         self.create_temp_node(pair)
         self.startTime = datetime.now()  # time debug
-        # dilation = int(bake_job.dilation * int(bake_job.bakeResolution))
-        dilation = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
+        padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
         # common params first
         if bakepass.pass_name == "MAT_ID":
             self.pass_material_id_prep()
@@ -707,7 +823,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
         aa = int(bake_job.antialiasing)  # antialiasing
         bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
-                            width=int(bake_job.bakeResolution)*aa, height=int(bake_job.bakeResolution)*aa, margin=dilation,
+                            width=int(bake_job.bakeResolution)*aa, height=int(bake_job.bakeResolution)*aa, margin=0,
                             use_selected_to_active=True, cage_extrusion=front, cage_object=pair.cage,
                             normal_space=bakepass.nm_space,
                             normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
@@ -845,12 +961,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
         for bj in active_bj:
             aa = int(bj.antialiasing)
-            render_target = bpy.data.images.new("MDtarget",
-                                width=int(bj.bakeResolution)*aa,
-                                height=int(bj.bakeResolution)*aa,
-                                alpha=True,
-                                float_buffer=False)
-            render_target.generated_color = (0.0, 0.0, 0.0, 0.0)  # black transparent
+            img_res = int(bj.bakeResolution)
             # ensure save path exists
             if not os.path.exists(bpy.path.abspath(bj.output)):
                 os.makedirs(bpy.path.abspath(bj.output))
@@ -865,17 +976,43 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
             self.scene_copy(bj)  # we export temp scene copy
 
+            padding = bj.padding_size if bj.padding_mode == 'FIXED' else int(img_res/64)
             active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated]
+
+            #   debug and print img size
+
             for bakepass in active_bake_passes:
+                render_target = bpy.data.images.new("MDtarget",
+                                    width=img_res*aa,
+                                    height=img_res*aa,
+                                    alpha=True,
+                                    float_buffer=False)
+                render_target.generated_color = (0.0, 0.0, 0.0, 0.0)  # black transparent
                 for pair in bj.bake_pairs_list:
                     self.select_hi_low(bj, pair)
                     self.bake_pair_pass(bj, bakepass, pair)
                 if len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0:
-                    self.resize_and_reload_img(bj, bakepass)
+                    add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
+
+                    render_target.scale(img_res, img_res)
+                    # bpy.ops.render.render(write_still=True, scene="MD_COMPO")
+                    imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
+                    render_target.filepath_raw = imgPath
+                    render_target.save()
+
+                    render_target.user_clear()
+                    bpy.data.images.remove(render_target)
+
+                    if path.isfile(imgPath):  # load bake from disk
+                        img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
+                        if img_users:
+                            for img in img_users:
+                                img.reload()  # reload done in baking
+                        else:
+                            img = bpy.data.images.load(filepath=imgPath)
+
             self.cleanup()  # delete scene
 
-            render_target.user_clear()
-            bpy.data.images.remove(render_target)
 
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
         # self.playFinishSound()
