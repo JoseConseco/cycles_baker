@@ -169,7 +169,7 @@ void main() {
     }else{
         float sample_weight = 0.;
         for (int r=1; r<=radius; r++){ //sample circle - with sample count ~ rad
-          float sample_cnt = 9.*pow(float(r), .6);
+          float sample_cnt = 9.*pow(float(r), .5);
           for(int i = 0; i < int(sample_cnt); i++){
             float alpha = 6.28 * float(i) /sample_cnt;
             vec2 uv_offset = uv + vec2(cos(alpha), sin(alpha))/img_size*float(r);
