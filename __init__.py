@@ -176,8 +176,10 @@ void main() {
             if (uv_offset.x<0. || uv_offset.x>1. || uv_offset.y<0. || uv_offset.y>1.) // skip borders
                 break;
             vec4 img_sample = texture(image, uv_offset);
-            out_img += img_sample*img_sample.a;
-            sample_weight += img_sample.a;
+            if (img_sample.a > 0.8) {
+                out_img += img_sample*img_sample.a;
+                sample_weight += img_sample.a;
+            }
           }
           if (sample_weight > 0.4*sample_cnt) // skip outer rad if got enough samples
               break;
