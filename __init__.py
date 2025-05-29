@@ -50,6 +50,15 @@ def get_raycast_distance(bj, pair):
     front = bj.frontDistance * pair.front_distance_modulator * objBBoxSize
     return max(front, 0)
 
+
+BG_color = {
+    "NORMAL": np.array([0.5, 0.5, 1.0, 1.0]),
+    "AO": np.array([1.0, 1.0, 1.0, 1.0]),
+    "MAT_ID": np.array([0.0, 0.0, 0.0, 0.0]),
+    "OPACITY": np.array([0.0, 0.0, 0.0, 0.0]),
+    }
+
+
 shader = gpu.shader.from_builtin('UNIFORM_COLOR')
 Verts = None
 Normals = None
@@ -169,7 +178,7 @@ void main() {
     }else{
         float sample_weight = 0.;
         for (int r=1; r<=radius; r++){ //sample circle - with sample count ~ rad
-          float sample_cnt = 9.*pow(float(r), .5);
+          float sample_cnt = 9.*pow(float(r), .3);
           for(int i = 0; i < int(sample_cnt); i++){
             float alpha = 6.28 * float(i) /sample_cnt;
             vec2 uv_offset = uv + vec2(cos(alpha), sin(alpha))/img_size*float(r);
@@ -181,7 +190,7 @@ void main() {
                 sample_weight += img_sample.a;
             }
           }
-          if (sample_weight > 0.4*sample_cnt) // skip outer rad if got enough samples
+          if (sample_weight > 0.2*sample_cnt) // skip outer rad if got enough samples
               break;
         }
         if (sample_weight > 0.)
@@ -991,7 +1000,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                                     height=img_res*aa,
                                     alpha=True,
                                     float_buffer=False)
-                render_target.generated_color = (0.0, 0.0, 0.0, 0.0)  # black transparent
+                render_target.generated_color = BG_color[bakepass.pass_name]
                 for pair in bj.bake_pairs_list:
                     self.select_hi_low(bj, pair)
                     self.bake_pair_pass(bj, bakepass, pair)
