@@ -54,7 +54,7 @@ def get_raycast_distance(bj, pair):
 BG_color = {
     "NORMAL": np.array([0.5, 0.5, 1.0, 1.0]),
     "AO": np.array([1.0, 1.0, 1.0, 1.0]),
-    "MAT_ID": np.array([0.0, 0.0, 0.0, 0.0]),
+    "DIFFUSE": np.array([0.0, 0.0, 0.0, 0.0]),
     "OPACITY": np.array([0.0, 0.0, 0.0, 0.0]),
     }
 
@@ -259,7 +259,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     bl_idname = 'cycles_baker'
 
     Info: bpy.props.StringProperty(name="Info", description="", default="")
-    MAT_ID: bpy.props.StringProperty(name="Mat ID suffix", description="", default='id')
+    DIFFUSE: bpy.props.StringProperty(name="Mat ID suffix", description="", default='id')
     AO: bpy.props.StringProperty(name="AO suffix", description="", default='ao')
     NORMAL: bpy.props.StringProperty(name="NORMAL suffix", description="", default="nrm")
     # HEIGHT: bpy.props.StringProperty(name="Height map suffix", description="", default="heig")
@@ -269,12 +269,12 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     def draw(self, context):
         layout = self.layout
         layout.label(text=self.Info)
-        layout.prop(self, "MAT_ID")
+        layout.prop(self, "DIFFUSE")
         layout.prop(self, "AO")
         layout.prop(self, "NORMAL")
         # layout.prop(self, "HEIGHT")
         # layout.prop(self, "COMBINED")
-        # layout.prop(self, "OPACITY")
+        layout.prop(self, "OPACITY")
 
 
 handleDrawRayDistance = []
@@ -457,8 +457,8 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             self.suffix = addon_prefs.AO
         if self.pass_name == "NORMAL":
             self.suffix = addon_prefs.NORMAL
-        if self.pass_name == "MAT_ID":
-            self.suffix = addon_prefs.MAT_ID
+        if self.pass_name == "DIFFUSE":
+            self.suffix = addon_prefs.DIFFUSE
         # if self.pass_name == "HEIGHT":
         #     self.suffix = addon_prefs.HEIGHT
         if self.pass_name == "COMBINED":
@@ -470,11 +470,11 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
     pass_name: bpy.props.EnumProperty(name="Pass", default="NORMAL",
                                       items=(
-                                           ("MAT_ID", "Material ID", ""),
+                                           ("DIFFUSE", "Diffuse Color", ""),
                                            ("AO", "Ambient Occlusion", ""),
                                            ("NORMAL", "Normal", ""),
                                         #    ("HEIGHT", "Height", ""),
-                                        #    ("OPACITY", "Opacity mask", ""),
+                                           ("OPACITY", "Opacity mask", ""),
                                         #    ("COMBINED", "Combined", ""),
                                       ), update=upSuffix)
 
@@ -522,8 +522,6 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             props = {"nm_space", "nm_invert", "bit_depth"}
         if self.pass_name == "NORMAL":
             props = {"nm_space", "nm_invert", "bit_depth"}
-        # if self.pass_name == "OPACITY":
-        #     props = {'position_mode', 'OPACITY'}
         # if self.pass_name == "HEIGHT":
         #     props = {'bit_depth'}
 
@@ -601,13 +599,11 @@ def convertCurveToGeo(curve, scene):
     return None
 
 
-class CB_OT_CyclesBakeOp(bpy.types.Operator):
+class CB_OT_CyclesBakeOps(bpy.types.Operator):
     bl_idname = "cycles.bake"
-    bl_label = "Cycles Bake"
-    bl_description = "Bake selected pairs of highpoly-lowpoly objects with Cycles"
+    bl_label = "Bake Objects"
+    bl_description = "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
     bl_options = {'REGISTER', 'UNDO'}
-
-    baseMaterialList = []
 
     def create_bake_mat_and_node(self, pair):
         low_obj = bpy.data.scenes["MD_TEMP"].objects[pair.lowpoly + "_MD_TMP"]
@@ -621,27 +617,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         imgnode.image = bpy.data.images["MDtarget"]
         bake_mat.node_tree.nodes.active = imgnode
 
-
-    def pass_material_id_prep(self):
-        for material in bpy.data.materials:
-            if material not in self.baseMaterialList:
-                material.use_nodes = True
-
-                for node in material.node_tree.nodes:
-                    if node.label == 'MDtarget':
-                        continue
-                    material.node_tree.nodes.remove(node)
-
-                tree = material.node_tree
-
-                tree.nodes.new(type="ShaderNodeBsdfDiffuse")
-                tree.nodes.new(type="ShaderNodeOutputMaterial")
-                output = tree.nodes["Diffuse BSDF"].outputs["BSDF"]
-                input = tree.nodes["Material Output"].inputs["Surface"]
-                tree.links.new(output, input)
-
-                material.node_tree.nodes["Diffuse BSDF"].inputs["Color"].default_value = \
-                    [material.diffuse_color[0], material.diffuse_color[1], material.diffuse_color[2], 1]
 
 
     @staticmethod
@@ -701,7 +676,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
             world.sd_orig_name = world.name
         for material in bpy.data.materials:
             material.sd_orig_name = material.name
-            self.baseMaterialList.append(material)
 
         # duplicate the scene
         bpy.ops.scene.new(type='FULL_COPY')
@@ -716,7 +690,6 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         #     if world.name != world.sd_orig_name:
         #         world.name = "MD_TEMP"
         for material in bpy.data.materials:
-            print('material name is: ' + material.name)
             if material.use_nodes:
                 material.use_nodes = False
             if material.name != material.sd_orig_name:
@@ -787,13 +760,13 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
                     if obj.type == 'MESH':
                         obj.hide_render = False
-                        obj.select_set( True)
+                        obj.select_set(True)
 
             lowpoly_obj = tmp_scn.objects[pair.lowpoly + "_MD_TMP"]
             lowpoly_obj.hide_viewport = False
             lowpoly_obj.hide_select = False
             lowpoly_obj.hide_render = False
-            lowpoly_obj.select_set( True)
+            lowpoly_obj.select_set(True)
             bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = lowpoly_obj
 
             if pair.use_cage and pair.cage != "":
@@ -802,7 +775,7 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                 cage_obj.hide_viewport = False
                 cage_obj.hide_select = False
                 cage_obj.hide_render = False
-                cage_obj.select_set( True)
+                cage_obj.select_set(True)
 
     def bake_pair_pass(self, bake_job, bakepass, pair):
         # TODO: issue for AO - alpha from first bake is overwritten by second bake... maybe cache? then add alpha on each step?
@@ -811,8 +784,8 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
         self.create_bake_mat_and_node(pair)
         startTime = datetime.now()  # time debug
         # common params first
-        if bakepass.pass_name == "MAT_ID":
-            self.pass_material_id_prep()
+        # if bakepass.pass_name == "DIFFUSE":
+        #     self.pass_material_id_prep()
         # bpy.data.scenes["MD_TEMP"].cycles.bake_type = bakepass.pass_name
         if bakepass.pass_name == "AO":
             bpy.data.scenes["MD_TEMP"].cycles.samples = bakepass.samples
@@ -822,14 +795,16 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
 
         pass_name = bakepass.pass_name
         passFilter = {'NONE'}
-        if pass_name == "MAT_ID":
+        if pass_name == "DIFFUSE":
             pass_name = 'DIFFUSE'
             passFilter = {'COLOR'}
-        if pass_name == 'COMBINED':
+        elif pass_name == "OPACITY":
+            pass_name = 'EMIT'
+        elif pass_name == 'COMBINED':
             passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
 
         aa = int(bake_job.antialiasing)  # antialiasing
-        padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
+        # padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
         bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
                             width=int(bake_job.bakeResolution)*aa, height=int(bake_job.bakeResolution)*aa, margin=0,
                             use_selected_to_active=True, cage_extrusion=front_dist, cage_object=pair.cage,
@@ -1005,7 +980,14 @@ class CB_OT_CyclesBakeOp(bpy.types.Operator):
                     self.select_hi_low(bj, pair)
                     self.bake_pair_pass(bj, bakepass, pair)
 
-                add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
+                if bakepass.pass_name != "OPACITY":  # opacity is not saved to image
+                    add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
+                else: # copy alpha to color
+                    pixels = np.array(render_target.pixels, dtype='f')
+                    alpha = pixels.reshape(-1, 4)[:, 3]  # get alpha channel
+                    # duplicate alpha to RGB channels and recombine
+                    channel = np.repeat(alpha[:, np.newaxis], 3, axis=1)  # make RGB channels
+                    render_target.pixels = np.concatenate((channel, alpha[:, np.newaxis]), axis=1).ravel()
 
                 render_target.scale(img_res, img_res)
                 imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
@@ -1533,7 +1515,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
                 bakepass = bj.bake_pass_list[bakeIndex]
                 # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
-                if bakepass.pass_name == "MAT_ID" or bakepass.pass_name == "AO":
+                if bakepass.pass_name == "DIFFUSE" or bakepass.pass_name == "AO":
                     imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNode.name = bakepass.suffix
                     imgNode.label = bakepass.suffix
@@ -1612,7 +1594,7 @@ classes = (
     CyclesBakePass,
     CyclesBakeJob,
     CyclesBakeSettings,
-    CB_OT_CyclesBakeOp,
+    CB_OT_CyclesBakeOps,
     CB_OT_SDAddPairOp,
     CB_OT_SDRemPairOp,
     CB_OT_SDAddPassOp,
