@@ -59,7 +59,7 @@ BG_color = {
     }
 
 
-shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
 Verts = None
 Normals = None
 Indices = None
@@ -105,10 +105,10 @@ def draw_cage_callback(self, context):
 
         with gpu.matrix.push_pop():
             gpu.matrix.multiply_matrix(low_poly.matrix_world)
-            shader.bind()
-            shader.uniform_float("color", face_color)
-            batch = batch_for_shader(shader, 'TRIS', {"pos": Vertices}, indices=Indices)
-            batch.draw(shader)
+            shader_uniform.bind()
+            shader_uniform.uniform_float("color", face_color)
+            batch = batch_for_shader(shader_uniform, 'TRIS', {"pos": Vertices}, indices=Indices)
+            batch.draw(shader_uniform)
 
         # restore gpu defaults
         gpu.state.blend_set('NONE')
