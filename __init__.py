@@ -655,11 +655,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                         hi_collection.objects.link(curveMeshClone)
                         curveMeshClone.matrix_world = current_matrix  @ curveMeshClone.matrix_world
 
-                # if not group_obj_copy.hide_render:  #? to not add hidden render obj's to export
-                # obj_copy.hide_render = False
                 hi_collection.objects.link(obj_copy)
                 obj_copy.matrix_world = current_matrix @ obj_copy.matrix_world
-
 
         self.copyModifierParentsSetup(current_group.objects, clones_map)
 
@@ -681,14 +678,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         bpy.ops.scene.new(type='FULL_COPY')
         bpy.context.scene.name = "MD_TEMP"
         bpy.context.scene.render.engine = "CYCLES"
-        # tag the copied obj names with _MD_TMP
+
         temp_scn = bpy.data.scenes["MD_TEMP"]
         for obj in temp_scn.objects:
             obj.name = obj.sd_orig_name + "_MD_TMP"
         temp_scn.world.name = 'MD_TEMP'
-        # for world in bpy.data.worlds:
-        #     if world.name != world.sd_orig_name:
-        #         world.name = "MD_TEMP"
+
         for material in bpy.data.materials:
             if material.use_nodes:
                 material.use_nodes = False
@@ -751,7 +746,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             if bakepass.environment_group != "":  # bake enviro objects too
                 if bakepass.environment_obj_vs_group == "GROUP":
                     for obj in bpy.data.collections[bakepass.environment_group + "_MD_TMP"].objects:
-                        seect_obj(obj)
+                        select_obj(obj)
                 else:
                     enviro_obj = tmp_scn.objects[bakepass.environment_group + "_MD_TMP"]
                     select_obj(enviro_obj)
