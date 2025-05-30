@@ -703,7 +703,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 if bpy.data.objects.get(obj.parent.name + "_MD_TMP") is not None:
                     obj.parent = bpy.data.objects[obj.parent.name + "_MD_TMP"]
 
-        bpy.ops.object.select_all(action='DESELECT')
 
         for pair in bj.bake_pairs_list:
             if pair.activated:
@@ -734,53 +733,45 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                         hi_collection.objects.link(hi_poly_obj)
                     bpy.data.scenes["MD_TEMP"].collection.children.link(hi_collection)
 
+
     def select_hi_low(self, bj, pair):
-        bpy.ops.object.select_all(action="DESELECT")
-        if pair.activated:
-            # enviro group export
-            tmp_scn = bpy.data.scenes["MD_TEMP"]
-            for obj in tmp_scn.objects:
-                obj.hide_render = True
-            # make selections, ensure visibility
-            bpy.ops.object.select_all(action='DESELECT')
-            for bakepass in bj.bake_pass_list:
-                if bakepass.environment_group != "":  # bake enviro objects too
-                    if bakepass.environment_obj_vs_group == "GROUP":
-                        for obj in bpy.data.collections[bakepass.environment_group + "_MD_TMP"].objects:
-                            obj.hide_render = False
-                            obj.select_set(True)
-                    else:
-                        enviro_obj = tmp_scn.objects[bakepass.environment_group + "_MD_TMP"]
-                        enviro_obj.hide_render = False
-                        enviro_obj.select_set( True)
+        tmp_scn = bpy.data.scenes["MD_TEMP"]
 
-            print("selected  enviro group " + pair.lowpoly)
+        def select_obj(obj, select=True):
+            obj.hide_render = not select
+            obj.hide_set(not select)
+            obj.select_set(select)
 
-            if pair.highpoly != "":
-                for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
-                    if obj.type == 'MESH':
-                        obj.hide_render = False
-                        obj.select_set(True)
+        for obj in tmp_scn.objects:
+            obj.hide_viewport = False  # slow - since it unloads obj from memory, thus just reveal all
+            select_obj(obj, False)
 
-            lowpoly_obj = tmp_scn.objects[pair.lowpoly + "_MD_TMP"]
-            lowpoly_obj.hide_viewport = False
-            lowpoly_obj.hide_select = False
-            lowpoly_obj.hide_render = False
-            lowpoly_obj.select_set(True)
-            bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = lowpoly_obj
+        # make selections, ensure visibility
+        for bakepass in bj.bake_pass_list:
+            if bakepass.environment_group != "":  # bake enviro objects too
+                if bakepass.environment_obj_vs_group == "GROUP":
+                    for obj in bpy.data.collections[bakepass.environment_group + "_MD_TMP"].objects:
+                        seect_obj(obj)
+                else:
+                    enviro_obj = tmp_scn.objects[bakepass.environment_group + "_MD_TMP"]
+                    select_obj(enviro_obj)
 
-            if pair.use_cage and pair.cage != "":
-                bpy.ops.object.select_all(action='DESELECT')
-                cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
-                cage_obj.hide_viewport = False
-                cage_obj.hide_select = False
-                cage_obj.hide_render = False
-                cage_obj.select_set(True)
+        print("selected  enviro group " + pair.lowpoly)
+
+        if pair.highpoly != "":
+            for obj in bpy.data.collections[pair.highpoly + "_MD_TMP"].objects:
+                if obj.type == 'MESH':
+                    select_obj(obj)
+
+        lowpoly_obj = tmp_scn.objects[pair.lowpoly + "_MD_TMP"]
+        select_obj(lowpoly_obj)
+        bpy.data.scenes['MD_TEMP'].view_layers[0].objects.active = lowpoly_obj
+
+        if pair.use_cage and pair.cage != "":
+            cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
+            select_obj(cage_obj)
 
     def bake_pair_pass(self, bake_job, bakepass, pair):
-        # TODO: issue for AO - alpha from first bake is overwritten by second bake... maybe cache? then add alpha on each step?
-        if not pair.activated:
-            return
         self.create_bake_mat_and_node(pair)
         startTime = datetime.now()  # time debug
         # common params first
@@ -803,10 +794,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         elif pass_name == 'COMBINED':
             passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
 
-        aa = int(bake_job.antialiasing)  # antialiasing
+        res = int(bake_job.bakeResolution) * int(bake_job.antialiasing)
         # padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
         bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
-                            width=int(bake_job.bakeResolution)*aa, height=int(bake_job.bakeResolution)*aa, margin=0,
+                            width=res, height=res, margin=0,
                             use_selected_to_active=True, cage_extrusion=front_dist, cage_object=pair.cage,
                             normal_space=bakepass.nm_space,
                             normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
@@ -977,8 +968,9 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                                     float_buffer=False)
                 render_target.generated_color = BG_color[bakepass.pass_name]
                 for pair in bj.bake_pairs_list:
-                    self.select_hi_low(bj, pair)
-                    self.bake_pair_pass(bj, bakepass, pair)
+                    if pair.activated:
+                        self.select_hi_low(bj, pair)
+                        self.bake_pair_pass(bj, bakepass, pair)
 
                 if bakepass.pass_name != "OPACITY":  # opacity is not saved to image
                     add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
