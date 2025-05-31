@@ -593,10 +593,28 @@ def convertCurveToGeo(curve, scene):
     if curve.type == 'CURVE' and (curve.data.bevel_depth != 0 or curve.data.bevel_object is not None):  # for converting curve to geo
         mesh = curve.to_mesh(scene, True, 'RENDER')
         obj = bpy.data.objects.new('DupaBla', mesh)
-        scene.collection.objects.link(obj)
         obj.matrix_world = curve.matrix_world
         return obj
     return None
+
+def eval_mesh_from_obj(self, obj, deps):
+    '''Old Not used anymore- will not work on hair system on curve anyway (old curves with bevel worked? )'''
+    parentCurve_eval = obj.evaluated_get(deps) # wont work on emptyies.., for hair curves
+    mesh = bpy.data.meshes.new_from_object(parentCurve_eval) # XXX: errors out on new Hair Curves (no geo data)
+
+    new_obj = bpy.data.objects.new(obj.name + "_mesh", mesh)
+    new_obj.matrix_world = obj.matrix_world
+
+    return new_obj
+
+def obj_to_mesh(context, obj):
+    # wont work on empty inst coll.
+    with context.temp_override(selected_editable_objects=[obj], active_object=obj, selected_objects=[obj]):
+        bpy.ops.object.convert(target='MESH')
+
+def make_inst_real(context, obj):
+    with context.temp_override(selected_editable_objects=[obj], active_object=obj, selected_objects=[obj], object=obj):
+        bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
 
 
 class CB_OT_CyclesBakeOps(bpy.types.Operator):
@@ -616,7 +634,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
         imgnode.image = bpy.data.images["MDtarget"]
         bake_mat.node_tree.nodes.active = imgnode
-
 
 
     @staticmethod
@@ -640,7 +657,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                         if oring_mod_obj and oring_mod_obj.name in cloned_obj_map.keys():
                             setattr(cloned_obj_map[groupObj.name].modifiers[index], obj_attribute_name, cloned_obj_map[oring_mod_obj.name])
 
-    def make_duplicates_real(self, current_group, current_matrix, hi_collection, depth=0):
+    def make_duplicates_real(self, current_group, current_matrix, hi_collection, deps, depth=0):
         clones_map = {} # map of original obj name to cloned obj
         for group_obj in current_group.all_objects:
             if group_obj.type == 'EMPTY' and group_obj.instance_collection:
@@ -661,10 +678,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         self.copyModifierParentsSetup(current_group.objects, clones_map)
 
 
-    def scene_copy(self, bj):
+    def scene_copy(self, context, bj):
         # store the original names of things in the scene so we can easily identify them later
 
-        for obj in bpy.context.scene.objects:
+        for obj in context.scene.objects:
             obj.sd_orig_name = obj.name
 
         for group in bpy.data.collections:
@@ -674,60 +691,82 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         for material in bpy.data.materials:
             material.sd_orig_name = material.name
 
+        orig_world = context.scene.world
         # duplicate the scene
-        bpy.ops.scene.new(type='FULL_COPY')
-        bpy.context.scene.name = "MD_TEMP"
-        bpy.context.scene.render.engine = "CYCLES"
+        bpy.ops.scene.new(type='EMPTY')
+        context.scene.name = "MD_TEMP"
+        context.scene.render.engine = "CYCLES"
 
         temp_scn = bpy.data.scenes["MD_TEMP"]
         for obj in temp_scn.objects:
             obj.name = obj.sd_orig_name + "_MD_TMP"
-        temp_scn.world.name = 'MD_TEMP'
+        temp_scn.world = orig_world  # copy world to temp scene
 
-        for material in bpy.data.materials:
-            if material.use_nodes:
-                material.use_nodes = False
-            if material.name != material.sd_orig_name:
-                material.name = material.sd_orig_name + "_MD_TMP"
-        # error before here
-        for group in bpy.data.collections:
-            if group.name != group.sd_orig_name:
-                group.name = group.sd_orig_name + "_MD_TMP"
-        for obj in temp_scn.objects:
-            if obj.parent:  # set parent and modifiers obj to temp objs
-                if bpy.data.objects.get(obj.parent.name + "_MD_TMP") is not None:
-                    obj.parent = bpy.data.objects[obj.parent.name + "_MD_TMP"]
+        # for material in bpy.data.materials:
+        #     if material.use_nodes:
+        #         material.use_nodes = False
+        #     if material.name != material.sd_orig_name:
+        #         material.name = material.sd_orig_name + "_MD_TMP"
+        # # error before here
+        # for group in bpy.data.collections:
+        #     if group.name != group.sd_orig_name:
+        #         group.name = group.sd_orig_name + "_MD_TMP"
+        #
+        # for obj in temp_scn.objects:
+        #     if obj.parent:  # set parent and modifiers obj to temp objs
+        #         if bpy.data.objects.get(obj.parent.name + "_MD_TMP") is not None:
+        #             obj.parent = bpy.data.objects[obj.parent.name + "_MD_TMP"]
 
 
+        depsgraph = context.evaluated_depsgraph_get()
+        context.view_layer.update()  # update depsgraph to get all objects evaluated
+
+        lowpoly_objs = []
         for pair in bj.bake_pairs_list:
             if pair.activated:
-                low_poly_obj = temp_scn.objects[pair.lowpoly + "_MD_TMP"]
-                if low_poly_obj.name not in temp_scn.collection.objects:
-                    temp_scn.collection.objects.link(low_poly_obj)
+                low_poly_obj = bpy.data.objects[pair.lowpoly]
+                temp_scn.collection.objects.link(low_poly_obj)  # link lowpoly obj to temp scene collection
+                lowpoly_objs.append(low_poly_obj)  # To merge them later
+                # if low_poly_obj.name not in temp_scn.collection.objects:
+                #     temp_scn.collection.objects.link(low_poly_obj)
                 # link obj's from group pro to hipoly group if obj is member of hipoly bake group
                 if pair.hp_type == "GROUP":
                     # search for empties in hipoly group and convert them to geo
-                    hi_collection = bpy.data.collections[pair.highpoly + "_MD_TMP"]
+                    hi_collection = bpy.data.collections[pair.highpoly]
                     for obj in hi_collection.objects:
-                        if obj.type == 'CURVE':
-                            ObjMeshFromCurve = convertCurveToGeo(obj, bpy.data.scenes['MD_TEMP'])
-                            if ObjMeshFromCurve is not None:
-                                hi_collection.objects.link(ObjMeshFromCurve)
+                        if obj.type in ('CURVE', 'CURVES'):
+                            obj_to_mesh(obj)  # convert curve to mesh
+                            # ObjMeshFromCurve = convertCurveToGeo(obj, bpy.data.scenes['MD_TEMP'])
+                            # if ObjMeshFromCurve is not None:
+                            #     hi_collection.objects.link(ObjMeshFromCurve)
                         if obj.type == 'EMPTY' and obj.instance_collection:
-                            self.make_duplicates_real(obj.instance_collection, obj.matrix_world, hi_collection)  # create and add obj to hipolyGroupName
-                else: #pair.hp_type == "OBJ"
-                    hi_collection = bpy.data.collections.new(pair.highpoly + "_MD_TMP")
-                    hi_poly_obj = temp_scn.objects[pair.highpoly + "_MD_TMP"]
-                    if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
-                        self.make_duplicates_real(hi_poly_obj.instance_collection, obj.matrix_world, hi_collection)  # TODO: whant if there is curve in group?
-                    else:
-                        if hi_poly_obj.type == 'CURVE':  # try clone, convert to mesh, and add to highpoly if possible
-                            ObjMeshFromCurve = convertCurveToGeo(hi_poly_obj, bpy.data.scenes['MD_TEMP'])
-                            if ObjMeshFromCurve is not None:
-                                hi_collection.objects.link(ObjMeshFromCurve)
-                        hi_collection.objects.link(hi_poly_obj)
-                    bpy.data.scenes["MD_TEMP"].collection.children.link(hi_collection)
+                            make_inst_real(context, obj)
+                            # self.make_duplicates_real(obj.instance_collection, obj.matrix_world, hi_collection, depsgraph)  # create and add obj to hipolyGroupName
 
+                else: #pair.hp_type == "OBJ"
+                    hi_collection = bpy.data.collections.new(pair.highpoly)
+                    hi_poly_obj = bpy.data.objects[pair.highpoly]
+                    hi_collection.objects.link(hi_poly_obj)
+                    context.scene.collection.children.link(hi_collection)
+                    if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
+                        make_inst_real(context, hi_poly_obj)
+                        # self.make_duplicates_real(hi_poly_obj.instance_collection, obj.matrix_world, hi_collection, depsgraph)  # TODO: whant if there is curve in group?
+                    elif hi_poly_obj.type in ('CURVE','CURVES'):  # try clone, convert to mesh, and add to highpoly if possible
+                            obj_to_mesh(hi_poly_obj)  # convert curve to mesh
+                            # ObjMeshFromCurve = convertCurveToGeo(hi_poly_obj, bpy.data.scenes['MD_TEMP'])
+                            # if ObjMeshFromCurve is not None:
+                            #     hi_collection.objects.link(ObjMeshFromCurve)
+        # merge all lowpoly objects into one
+        if len(lowpoly_objs) > 1:
+            # bpy.ops.object.select_all(action='DESELECT')
+            # for obj in lowpoly_objs:
+            #     obj.select_set(True)
+            # bpy.context.view_layer.objects.active = lowpoly_objs[0]
+            lowpoly_objs[0].data = lowpoly_objs[0].data.copy()
+            with bpy.context.temp_override(selected_editable_objects=lowpoly_objs, active_object=lowpoly_objs[0], selected_objects=lowpoly_objs):
+                bpy.ops.object.join()
+
+        dupa
 
     def select_hi_low(self, bj, pair):
         tmp_scn = bpy.data.scenes["MD_TEMP"]
@@ -948,7 +987,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                     self.report({'INFO'}, 'highpoly not found ' + pair.highpoly)
                     pair.activated = False
 
-            self.scene_copy(bj)  # we export temp scene copy
+            self.scene_copy(context, bj)  # we export temp scene copy
 
             aa = int(bj.antialiasing)
             img_res = int(bj.bakeResolution)
