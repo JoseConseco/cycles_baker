@@ -589,14 +589,6 @@ class CyclesBakeSettings(bpy.types.PropertyGroup):
     bake_job_queue: bpy.props.CollectionProperty(type=CyclesBakeJob)
 
 
-def convertCurveToGeo(curve, scene):
-    if curve.type == 'CURVE' and (curve.data.bevel_depth != 0 or curve.data.bevel_object is not None):  # for converting curve to geo
-        mesh = curve.to_mesh(scene, True, 'RENDER')
-        obj = bpy.data.objects.new('DupaBla', mesh)
-        obj.matrix_world = curve.matrix_world
-        return obj
-    return None
-
 def eval_mesh_from_obj(self, obj, deps):
     '''Old Not used anymore- will not work on hair system on curve anyway (old curves with bevel worked? )'''
     parentCurve_eval = obj.evaluated_get(deps) # wont work on emptyies.., for hair curves
@@ -607,14 +599,28 @@ def eval_mesh_from_obj(self, obj, deps):
 
     return new_obj
 
-def obj_to_mesh(context, obj):
+def obj_to_mesh(context, src_obj, coll):
     # wont work on empty inst coll.
-    with context.temp_override(selected_editable_objects=[obj], active_object=obj, selected_objects=[obj]):
+    cp = src_obj.copy()
+    coll.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+    with context.temp_override(selected_editable_objects=[cp], active_object=cp, selected_objects=[cp]):
         bpy.ops.object.convert(target='MESH')
+        for obj in context.selected_objects:
+            obj['tmp'] = True
 
-def make_inst_real(context, obj):
-    with context.temp_override(selected_editable_objects=[obj], active_object=obj, selected_objects=[obj], object=obj):
+def make_inst_real(context, src_obj, coll):
+    cp = src_obj.copy()
+    coll.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+    cp_name = cp.name
+    cp['tmp'] = True  # mark as tmp, so it can be deleted later
+    with context.temp_override(selected_editable_objects=[cp], active_object=cp, selected_objects=[cp], object=cp):
         bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+        root_empty_after_split = bpy.data.objects[cp_name]  # this is the root empty after split
+        # go over all children and  makr as tmp
+        for child  in root_empty_after_split.children_recursive:
+            child['tmp'] = True
+            if child.type in ('CURVE', 'CURVES', 'FONT'):
+                obj_to_mesh(context, child, coll)
 
 
 class CB_OT_CyclesBakeOps(bpy.types.Operator):
@@ -636,52 +642,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         bake_mat.node_tree.nodes.active = imgnode
 
 
-    @staticmethod
-    def copyModifierParentsSetup(groupObjs, cloned_obj_map):
-        # copy modifier obj, parents etc from source do clones
-        for groupObj in groupObjs:  # search donors
-            if groupObj.parent:  # for array
-                if groupObj.parent.name not in cloned_obj_map.keys():  # what if parent /modifier obj is not inside group????
-                    pass  # then probably parent is outside group. So just skip it
-                else:
-                    backupMatrixWorld = cloned_obj_map[groupObj.name].matrix_world.copy()
-                    backupMatrixParentInv = cloned_obj_map[groupObj.name].matrix_parent_inverse.copy()
-                    cloned_obj_map[groupObj.name].parent = cloned_obj_map[groupObj.parent.name]  # set parent to new child
-                    cloned_obj_map[groupObj.name].matrix_parent_inverse = backupMatrixParentInv  # this is needed cos changing parent may zero MatrixParentInverted. So just restore it
-                    cloned_obj_map[groupObj.name].matrix_world = backupMatrixWorld
-
-            for index, mod in enumerate(groupObj.modifiers):
-                for obj_attribute_name in MODIFIER_OBJ_ATTR_NAMES:
-                    if hasattr(mod, obj_attribute_name):
-                        oring_mod_obj = getattr(mod, obj_attribute_name)
-                        if oring_mod_obj and oring_mod_obj.name in cloned_obj_map.keys():
-                            setattr(cloned_obj_map[groupObj.name].modifiers[index], obj_attribute_name, cloned_obj_map[oring_mod_obj.name])
-
-    def make_duplicates_real(self, current_group, current_matrix, hi_collection, deps, depth=0):
-        clones_map = {} # map of original obj name to cloned obj
-        for group_obj in current_group.all_objects:
-            if group_obj.type == 'EMPTY' and group_obj.instance_collection:
-                self.make_duplicates_real(group_obj.instance_collection, current_matrix @ group_obj.matrix_world, hi_collection, depth + 1)
-            else:
-                obj_copy = group_obj.copy()
-                obj_copy.name += "_MD_TMP"
-                clones_map[group_obj.name] = obj_copy
-                if obj_copy.type == 'CURVE':  # try clone and convert curve to mesh.
-                    curveMeshClone = convertCurveToGeo(obj_copy, bpy.data.scenes['MD_TEMP'])
-                    if curveMeshClone is not None:
-                        hi_collection.objects.link(curveMeshClone)
-                        curveMeshClone.matrix_world = current_matrix  @ curveMeshClone.matrix_world
-
-                hi_collection.objects.link(obj_copy)
-                obj_copy.matrix_world = current_matrix @ obj_copy.matrix_world
-
-        self.copyModifierParentsSetup(current_group.objects, clones_map)
-
-
     def scene_copy(self, context, bj):
         orig_world = context.scene.world
-        # duplicate the scene
-        # bpy.ops.scene.new(type='EMPTY')
 
         temp_scn = bpy.data.scenes.new("MD_TEMP")
         context.window.scene = temp_scn  # set new scene as active
@@ -704,18 +666,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
                 for obj in hi_collection.objects:
-                    if obj.type in ('CURVE', 'CURVES'):
-                        cp = obj.copy()
-                        out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                        obj_to_mesh(cp)  # convert curve to mesh
-                        # ObjMeshFromCurve = convertCurveToGeo(obj, bpy.data.scenes['MD_TEMP'])
-                        # if ObjMeshFromCurve is not None:
-                        #     hi_collection.objects.link(ObjMeshFromCurve)
+                    if obj.type in ('CURVE', 'CURVES', 'FONT'):
+                        obj_to_mesh(context, obj, out_hi_collection)  # convert curve to mesh
                     elif obj.type == 'EMPTY' and obj.instance_collection:
-                        cp = obj.copy()
-                        out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                        make_inst_real(context, obj)
-                        # self.make_duplicates_real(obj.instance_collection, obj.matrix_world, hi_collection, depsgraph)  # create and add obj to hipolyGroupName
+                        make_inst_real(context, obj, out_hi_collection)  # convert empty instance to real object
                     else:
                         out_hi_collection.objects.link(obj)  # link all objects from hipoly group to highpoly collection
 
@@ -723,17 +677,9 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             else: #pair.hp_type == "OBJ"
                 hi_poly_obj = bpy.data.objects[pair.highpoly]
                 if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
-                    cp = hi_poly_obj.copy()
-                    out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                    make_inst_real(context, cp)
-                    # self.make_duplicates_real(hi_poly_obj.instance_collection, obj.matrix_world, hi_collection, depsgraph)  # TODO: whant if there is curve in group?
-                elif hi_poly_obj.type in ('CURVE','CURVES'):  # try clone, convert to mesh, and add to highpoly if possible
-                    cp = hi_poly_obj.copy()
-                    out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                    obj_to_mesh(cp)  # convert curve to mesh
-                    # ObjMeshFromCurve = convertCurveToGeo(hi_poly_obj, bpy.data.scenes['MD_TEMP'])
-                    # if ObjMeshFromCurve is not None:
-                    #     hi_collection.objects.link(ObjMeshFromCurve)
+                    make_inst_real(context, hi_poly_obj, out_hi_collection)
+                elif hi_poly_obj.type in ('CURVE','CURVES', 'FONT'):  # try clone, convert to mesh, and add to highpoly if possible
+                    obj_to_mesh(context, hi_poly_obj, out_hi_collection)  # convert curve to mesh
                 else:
                     out_hi_collection.objects.link(hi_poly_obj)  # link all objects from hipoly group to highpoly collection
 
@@ -774,7 +720,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
         # print("selected  enviro group " + pair.lowpoly)
 
-        for obj in bpy.data.collections['HIGHPOLY_MD_TMP'].objects:
+        high_coll = bpy.data.collections['HIGHPOLY_MD_TMP']
+        for obj in high_coll.objects:
             if obj.type == 'MESH':
                 select_obj(obj)
 
@@ -789,32 +736,33 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     def bake_pair_pass(self, bake_job, bakepass):
         self.create_bake_mat_and_node()
         startTime = datetime.now()  # time debug
-        # common params first
-        # if bakepass.pass_name == "DIFFUSE":
-        #     self.pass_material_id_prep()
-        # bpy.data.scenes["MD_TEMP"].cycles.bake_type = bakepass.pass_name
+        scn = bpy.data.scenes["MD_TEMP"]
         if bakepass.pass_name == "AO":
-            scn = bpy.data.scenes["MD_TEMP"]
             scn.cycles.samples = bakepass.samples
             scn.world.light_settings.distance = bakepass.ao_distance
 
         front_dist = get_raycast_distance(bake_job)
 
         pass_name = bakepass.pass_name
-        passFilter = {'NONE'}
+        pass_components = {'NONE'}
         if pass_name == "DIFFUSE":
             pass_name = 'DIFFUSE'
-            passFilter = {'COLOR'}
+            pass_components = {'COLOR'}
         elif pass_name == "OPACITY":
             pass_name = 'EMIT'
         elif pass_name == 'COMBINED':
-            passFilter = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
+            pass_components = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
 
-        res = int(bake_job.bakeResolution) * int(bake_job.antialiasing)
-        padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(int(bake_job.bakeResolution)/64)
-        bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=passFilter,
-                            width=res, height=res,
-                            margin=padding,
+        aa = int(bake_job.antialiasing)
+        res = int(bake_job.bakeResolution)
+
+        padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(res/64)
+        if bakepass.pass_name == "OPACITY":
+            padding = 0
+
+        bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=pass_components,
+                            width=res*aa, height=res*aa,
+                            margin=padding*aa,
                             use_selected_to_active=True,
                             cage_extrusion=front_dist,
                             normal_space=bakepass.nm_space,
@@ -828,22 +776,16 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
         print("Baking set " + bakepass.pass_name + "  time: " + str(datetime.now() - startTime))
 
-    def remove_object(self, obj):
-        tmp_scn = bpy.data.scenes["MD_TEMP"]
-        if bpy.data.objects[obj.name]:
-            if obj.type == "MESH":
-                if obj.name in tmp_scn.collection.objects.keys():
-                    tmp_scn.collection.objects.unlink(obj) #TODO: remake this to remove from master cool??
-                mesh_to_remove = obj.data
-                obj.user_clear()
-                bpy.data.objects.remove(obj)
-                if mesh_to_remove.users == 0:  # if multi user skip removing mesh
-                    bpy.data.meshes.remove(mesh_to_remove)
-            else:
-                if obj.name in tmp_scn.collection.objects.keys():
-                    tmp_scn.collection.objects.unlink(obj)
-                obj.user_clear()
-                bpy.data.objects.remove(obj)
+    @staticmethod
+    def remove_object(obj):
+        mesh = None
+        if obj.type == "MESH":
+            mesh = obj.data
+
+        # obj.user_clear()
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh is not None and mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
 
     @staticmethod
     def get_set_first_material_slot(obj):
@@ -864,19 +806,24 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         return low_bake_mat
 
     def cleanup(self):
-        for obj in bpy.data.scenes["MD_TEMP"].objects:
-            self.remove_object(obj)
+        scn_tmp = bpy.data.scenes["MD_TEMP"]
+        for obj in scn_tmp.objects:
+            if obj.get('tmp', False):
+                self.remove_object(obj)
 
-        for material in bpy.data.materials:
-            if material.name.endswith("_MD_TMP"):
-                bpy.data.materials.remove(material, do_unlink=True)
+        low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
+        if low_obj:
+            self.remove_object(low_obj)  # remove lowpoly object
+
+        # for material in bpy.data.materials:
+        #     if material.name.endswith("_MD_TMP"):
+        #         bpy.data.materials.remove(material, do_unlink=True)
+        bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
+        if bake_mat:
+            bpy.data.materials.remove(bake_mat, do_unlink=True)
 
         bpy.data.collections.remove(bpy.data.collections["HIGHPOLY_MD_TMP"], do_unlink=True)  # remove highpoly collection
-
-        # bpy.ops.scene.delete()
-        bpy.data.scenes.remove(bpy.data.scenes["MD_TEMP"])
-        # bpy.data.worlds['MD_TEMP'].user_clear()
-        # bpy.data.worlds.remove(bpy.data.worlds['MD_TEMP'])
+        bpy.data.scenes.remove(scn_tmp)
 
 
     def assign_pink_mat(self, obj):
@@ -914,9 +861,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             pair.activated = False
                             continue
                         if hipolyObj.type == 'EMPTY' and hipolyObj.instance_collection:
-                            # return False  #prevent detecting empty mat on duplifaces
                             emptyMatInGroup = self.checkEmptyMaterialForGroup(hipolyObj, context)
-                        # non empty objs
+
                         self.assign_pink_mat(hipolyObj)
                 else:  # if highpoly empty
                     print("No highpoly defined. Disabling pair")
@@ -963,10 +909,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 os.makedirs(bpy.path.abspath(bj.output))
 
             for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not defined
-                if pair.lowpoly == "" or pair.lowpoly not in bpy.data.objects.keys():
+                if pair.lowpoly == "" or not bpy.data.objects.get(pair.lowpoly):
                     self.report({'INFO'}, 'Lowpoly not found ' + pair.lowpoly)
                     pair.activated = False
-                if pair.highpoly == "" or (pair.hp_type=="OBJ" and pair.highpoly not in bpy.data.objects.keys()) or (pair.hp_type=="GROUP" and pair.highpoly not in bpy.data.collections.keys()):
+                if pair.highpoly == "" or (pair.hp_type=="OBJ" and  not bpy.data.objects.get(pair.highpoly)) or (pair.hp_type=="GROUP" and  not bpy.data.collections.get(pair.highpoly)):
                     self.report({'INFO'}, 'highpoly not found ' + pair.highpoly)
                     pair.activated = False
 
