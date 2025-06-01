@@ -704,34 +704,50 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
                 for obj in hi_collection.objects:
-                    out_hi_collection.objects.link(obj)  # link all objects from hipoly group to highpoly collection
                     if obj.type in ('CURVE', 'CURVES'):
-                        obj_to_mesh(obj)  # convert curve to mesh
+                        cp = obj.copy()
+                        out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+                        obj_to_mesh(cp)  # convert curve to mesh
                         # ObjMeshFromCurve = convertCurveToGeo(obj, bpy.data.scenes['MD_TEMP'])
                         # if ObjMeshFromCurve is not None:
                         #     hi_collection.objects.link(ObjMeshFromCurve)
-                    if obj.type == 'EMPTY' and obj.instance_collection:
+                    elif obj.type == 'EMPTY' and obj.instance_collection:
+                        cp = obj.copy()
+                        out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
                         make_inst_real(context, obj)
                         # self.make_duplicates_real(obj.instance_collection, obj.matrix_world, hi_collection, depsgraph)  # create and add obj to hipolyGroupName
+                    else:
+                        out_hi_collection.objects.link(obj)  # link all objects from hipoly group to highpoly collection
+
 
             else: #pair.hp_type == "OBJ"
                 hi_poly_obj = bpy.data.objects[pair.highpoly]
-                out_hi_collection.objects.link(hi_poly_obj)  # link all objects from hipoly group to highpoly collection
                 if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
-                    make_inst_real(context, hi_poly_obj)
+                    cp = hi_poly_obj.copy()
+                    out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+                    make_inst_real(context, cp)
                     # self.make_duplicates_real(hi_poly_obj.instance_collection, obj.matrix_world, hi_collection, depsgraph)  # TODO: whant if there is curve in group?
                 elif hi_poly_obj.type in ('CURVE','CURVES'):  # try clone, convert to mesh, and add to highpoly if possible
-                        obj_to_mesh(hi_poly_obj)  # convert curve to mesh
-                        # ObjMeshFromCurve = convertCurveToGeo(hi_poly_obj, bpy.data.scenes['MD_TEMP'])
-                        # if ObjMeshFromCurve is not None:
-                        #     hi_collection.objects.link(ObjMeshFromCurve)
+                    cp = hi_poly_obj.copy()
+                    out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+                    obj_to_mesh(cp)  # convert curve to mesh
+                    # ObjMeshFromCurve = convertCurveToGeo(hi_poly_obj, bpy.data.scenes['MD_TEMP'])
+                    # if ObjMeshFromCurve is not None:
+                    #     hi_collection.objects.link(ObjMeshFromCurve)
+                else:
+                    out_hi_collection.objects.link(hi_poly_obj)  # link all objects from hipoly group to highpoly collection
+
+        copy = lowpoly_objs[0].copy()
+        temp_scn.collection.objects.unlink(lowpoly_objs[0])  # unlink original lowpoly object
+        lowpoly_objs[0] = copy
+        lowpoly_objs[0].data = lowpoly_objs[0].data.copy()
+        lowpoly_objs[0].name = "LOWPOLY_MD_TMP"
+        temp_scn.collection.objects.link(lowpoly_objs[0])  # unlink all other lowpoly objects
 
         if len(lowpoly_objs) > 1:
-            lowpoly_objs[0].data = lowpoly_objs[0].data.copy()
             with bpy.context.temp_override(selected_editable_objects=lowpoly_objs, active_object=lowpoly_objs[0], selected_objects=lowpoly_objs):
                 bpy.ops.object.join()
 
-        lowpoly_objs[0].name = "LOWPOLY_MD_TMP"
 
 
     def select_hi_low(self, bj):
@@ -855,14 +871,21 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             if material.name.endswith("_MD_TMP"):
                 bpy.data.materials.remove(material, do_unlink=True)
 
-        for group in bpy.data.collections:
-            if group.name.endswith("_MD_TMP"):
-                bpy.data.collections.remove(group, do_unlink=True)
+        bpy.data.collections.remove(bpy.data.collections["HIGHPOLY_MD_TMP"], do_unlink=True)  # remove highpoly collection
 
         # bpy.ops.scene.delete()
         bpy.data.scenes.remove(bpy.data.scenes["MD_TEMP"])
         # bpy.data.worlds['MD_TEMP'].user_clear()
         # bpy.data.worlds.remove(bpy.data.worlds['MD_TEMP'])
+
+
+    def assign_pink_mat(self, obj):
+        pink_mat = bpy.data.materials.get("TMP_MissingMaterial")
+        if obj.type == 'MESH':
+            if len(obj.material_slots) == 0 or obj.material_slots[0].material is None:
+                self.report({'WARNING'}, "Object: " + obj.name + " has no Material! Assigning pink mat")
+                print("Object: " + obj.name + " has no Material! Assigning pink mat")
+                obj.data.materials.append(pink_mat)
 
     # empty mat search function
     def is_empty_mat(self, context):
@@ -872,15 +895,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             pink_mat.diffuse_color = (1, 0.0, 0.2, 1.0)
             pink_mat.use_nodes = False
 
-        def assign_pink_mat(obj):
-            if obj.type == 'MESH':
-                if len(obj.material_slots) == 0 or obj.material_slots[0].material is None:
-                    obj.data.materials.append(pink_mat)
-                    self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material! Assigning pink mat')
-                    print("Object: " + obj.name + " has no Material! Assigning pink mat")
-                    return True
-            return False
 
+        self.checked_groups.clear()
         bake_settings = context.scene.cycles_baker_settings
         for bj in bake_settings.bake_job_queue:
             active_pair = [pair for pair in bj.bake_pairs_list if pair.activated]
@@ -890,7 +906,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                         for obj in bpy.data.collections[pair.highpoly].objects:
                             if obj.type == 'EMPTY' and obj.instance_collection:
                                 continue
-                            assign_pink_mat(obj)
+                            self.assign_pink_mat(obj)
                     else:
                         hipolyObj = bpy.data.objects.get(pair.highpoly)
                         if not hipolyObj:
@@ -900,11 +916,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                         if hipolyObj.type == 'EMPTY' and hipolyObj.instance_collection:
                             # return False  #prevent detecting empty mat on duplifaces
                             emptyMatInGroup = self.checkEmptyMaterialForGroup(hipolyObj, context)
-                            if emptyMatInGroup:
-                                self.MaterialCheckedGroupNamesList.clear()
-                                return emptyMatInGroup
                         # non empty objs
-                        assign_pink_mat(hipolyObj)
+                        self.assign_pink_mat(hipolyObj)
                 else:  # if highpoly empty
                     print("No highpoly defined. Disabling pair")
                     pair.activated = False
@@ -919,23 +932,21 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                     pair.activated = False
                     continue
 
-        self.MaterialCheckedGroupNamesList.clear()
-        return False
 
-    MaterialCheckedGroupNamesList = []
+    checked_groups = []
 
     def checkEmptyMaterialForGroup(self, empty, context):
-        if empty.instance_collection.name in self.MaterialCheckedGroupNamesList:
-            print(empty.instance_collection.name + " was already checked for empty mat. Skipping!")
+        if empty.instance_collection.name in self.checked_groups:
+            # print(empty.instance_collection.name + " was already checked for empty mat. Skipping!")
             return False
         for obj in bpy.data.collections[empty.instance_collection.name].objects:
             if obj.instance_collection and obj.type == 'EMPTY':
                 return self.checkEmptyMaterialForGroup(obj, context)
             elif obj.type == "MESH" and (len(obj.material_slots) == 0 or obj.material_slots[0].material is None) and not obj.hide_render:
-                self.report({'INFO'}, 'Object: ' + obj.name + ' has no Material!')
-                self.MaterialCheckedGroupNamesList.append(empty.instance_collection.name)  # add to check list if there was obj with empty mat
+                self.assign_pink_mat(obj)
+                self.checked_groups.append(empty.instance_collection.name)  # add to check list if there was obj with empty mat
                 return True
-        self.MaterialCheckedGroupNamesList.append(empty.instance_collection.name)  # or no empty mat in group
+        self.checked_groups.append(empty.instance_collection.name)  # or no empty mat in group
         return False
 
 
@@ -998,7 +1009,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                     else:
                         img = bpy.data.images.load(filepath=imgPath)
 
-        self.cleanup()  # delete scene
+            self.cleanup()  # delete scene
 
 
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
