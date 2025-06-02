@@ -455,31 +455,8 @@ def eval_mesh_from_obj(self, obj, deps):
 
     new_obj = bpy.data.objects.new(obj.name + "_mesh", mesh)
     new_obj.matrix_world = obj.matrix_world
-
     return new_obj
 
-def obj_to_mesh(context, src_obj, coll):
-    # wont work on empty inst coll.
-    cp = src_obj.copy()
-    coll.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-    with context.temp_override(selected_editable_objects=[cp], active_object=cp, selected_objects=[cp]):
-        bpy.ops.object.convert(target='MESH')
-        for obj in context.selected_objects:
-            obj['tmp'] = True
-
-def make_inst_real(context, src_obj, coll):
-    cp = src_obj.copy()
-    coll.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-    cp_name = cp.name
-    cp['tmp'] = True  # mark as tmp, so it can be deleted later
-    with context.temp_override(selected_editable_objects=[cp], active_object=cp, selected_objects=[cp], object=cp):
-        bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
-        root_empty_after_split = bpy.data.objects[cp_name]  # this is the root empty after split
-        # go over all children and  makr as tmp
-        for child  in root_empty_after_split.children_recursive:
-            child['tmp'] = True
-            if child.type in ('CURVE', 'CURVES', 'FONT'):
-                obj_to_mesh(context, child, coll)
 
 
 class CB_OT_CyclesBakeOps(bpy.types.Operator):
@@ -500,6 +477,30 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         imgnode.image = bpy.data.images["MDtarget"]
         bake_mat.node_tree.nodes.active = imgnode
 
+
+    @staticmethod
+    def obj_to_mesh(context, src_obj, coll):
+        cp = src_obj.copy()
+        coll.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+        with context.temp_override(selected_editable_objects=[cp], active_object=cp, selected_objects=[cp]):
+            bpy.ops.object.convert(target='MESH')
+            for obj in context.selected_objects:
+                obj['tmp'] = True
+
+    @staticmethod
+    def make_inst_real(context, src_obj, coll):
+        cp = src_obj.copy()
+        coll.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+        cp_name = cp.name
+        cp['tmp'] = True  # mark as tmp, so it can be deleted later
+        with context.temp_override(selected_editable_objects=[cp], active_object=cp, selected_objects=[cp], object=cp):
+            bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+            root_empty_after_split = bpy.data.objects[cp_name]  # this is the root empty after split
+            # go over all children and  makr as tmp
+            for child  in root_empty_after_split.children_recursive:
+                child['tmp'] = True
+                if child.type in ('CURVE', 'CURVES', 'FONT'):
+                    self.obj_to_mesh(context, child, coll)
 
     def scene_copy(self, context, bj):
         orig_world = context.scene.world
@@ -522,23 +523,23 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             low_poly_obj = bpy.data.objects[pair.lowpoly]
             lowpoly_objs.append(low_poly_obj)  # To merge them later
             temp_scn.collection.objects.link(low_poly_obj)  # unlink all other lowpoly objects
+
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
                 for obj in hi_collection.objects:
                     if obj.type in ('CURVE', 'CURVES', 'FONT'):
-                        obj_to_mesh(context, obj, out_hi_collection)  # convert curve to mesh
+                        self.obj_to_mesh(context, obj, out_hi_collection)  # convert curve to mesh
                     elif obj.type == 'EMPTY' and obj.instance_collection:
-                        make_inst_real(context, obj, out_hi_collection)  # convert empty instance to real object
+                        self.make_inst_real(context, obj, out_hi_collection)  # convert empty instance to real object
                     else:
                         out_hi_collection.objects.link(obj)  # link all objects from hipoly group to highpoly collection
-
 
             else: #pair.hp_type == "OBJ"
                 hi_poly_obj = bpy.data.objects[pair.highpoly]
                 if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
-                    make_inst_real(context, hi_poly_obj, out_hi_collection)
+                    self.make_inst_real(context, hi_poly_obj, out_hi_collection)
                 elif hi_poly_obj.type in ('CURVE','CURVES', 'FONT'):  # try clone, convert to mesh, and add to highpoly if possible
-                    obj_to_mesh(context, hi_poly_obj, out_hi_collection)  # convert curve to mesh
+                    self.obj_to_mesh(context, hi_poly_obj, out_hi_collection)  # convert curve to mesh
                 else:
                     out_hi_collection.objects.link(hi_poly_obj)  # link all objects from hipoly group to highpoly collection
 
@@ -588,6 +589,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         select_obj(lowpoly_obj)
         tmp_scn.view_layers[0].objects.active = lowpoly_obj
 
+        # XXX: restore  cage - in tmp scene setup
         # if pair.use_cage and pair.cage != "":
         #     cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
         #     select_obj(cage_obj)
