@@ -524,6 +524,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         # depsgraph = context.evaluated_depsgraph_get()
         context.view_layer.update()  # update depsgraph to get all objects evaluated
 
+        cage_objs = []  # List to store cage objects
         lowpoly_objs = []
         out_hi_collection = bpy.data.collections.new('HIGHPOLY_MD_TMP')  # collection for highpoly objects
         temp_scn.collection.children.link(out_hi_collection)  # link highpoly collection to temp scene collection
@@ -537,6 +538,33 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             low_poly_obj_cp.matrix_world.translation += offset
             lowpoly_objs.append(low_poly_obj_cp)  # To merge them later
             temp_scn.collection.objects.link(low_poly_obj_cp)  # unlink all other lowpoly objects
+
+            cage = bpy.data.objects.get(pair.cage, None)
+            if pair.use_cage and cage:
+                # Copy existing cage object
+                cage_obj = cage.copy()
+                if i == 0:
+                    cage_objs[0].data = cage_objs[0].data.copy() # to not affect original cage object
+                cage_obj['tmp'] = True  # mark as tmp, so it can be deleted later
+                cage_obj.matrix_world.translation += offset
+                temp_scn.collection.objects.link(cage_obj)
+                cage_objs.append(cage_obj)
+            else:
+                # Create temporary cage by displacing vertices along normals
+                temp_cage = low_poly_obj_cp.copy()
+                temp_cage.data = low_poly_obj_cp.data.copy()  # copy mesh data to not affect original
+                temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
+                temp_cage.name = f"TEMP_CAGE_{low_poly_obj_cp.name}"
+                temp_scn.collection.objects.link(temp_cage)
+
+                # Add displacement modifier
+                displace = temp_cage.modifiers.new(name="CAGE_DISPLACE", type='DISPLACE')
+                displace.strength = get_raycast_distance(bj)
+                displace.mid_level = 0.0
+                with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
+                    bpy.ops.object.convert(target='MESH')
+                cage_objs.append(temp_cage)
+
 
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
@@ -567,12 +595,21 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                     cp['tmp'] = True  # mark as tmp, so it can be deleted later
                     out_hi_collection.objects.link(cp)
 
+
         lowpoly_objs[0].data = lowpoly_objs[0].data.copy()
         lowpoly_objs[0].name = "LOWPOLY_MD_TMP"
 
         if len(lowpoly_objs) > 1:
             with bpy.context.temp_override(selected_editable_objects=lowpoly_objs, active_object=lowpoly_objs[0], selected_objects=lowpoly_objs):
                 bpy.ops.object.join()
+
+        # Merge cage objects if they exist
+        if cage_objs:
+            cage_objs[0].name = "CAGE_MD_TMP"
+
+            if len(cage_objs) > 1:
+                with bpy.context.temp_override(selected_editable_objects=cage_objs, active_object=cage_objs[0], selected_objects=cage_objs):
+                    bpy.ops.object.join()
 
 
 
@@ -641,6 +678,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if bakepass.pass_name == "OPACITY":
             padding = 0
 
+        # cage_obj = bpy.data.objects.get("CAGE_MD_TMP", None)
         bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=pass_components,
                             width=res*aa, height=res*aa,
                             margin=padding*aa,
@@ -650,8 +688,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
                             save_mode='INTERNAL',
                             use_clear=False,
-                            # cage_object=pair.cage,
-                            # use_cage=pair.use_cage,
+                            use_cage=True,
+                            cage_object="CAGE_MD_TMP",
                             target='IMAGE_TEXTURES',
                             use_split_materials=False, use_automatic_name=False)
 
