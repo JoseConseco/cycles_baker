@@ -33,6 +33,7 @@ import os
 from numpy.lib.stride_tricks import as_strided
 import bpy
 import aud
+import math
 from os import path
 from bpy.props import *
 from mathutils import Vector
@@ -484,8 +485,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         coll.objects.link(cp)  # link all objects from hipoly group to highpoly collection
         with context.temp_override(selected_editable_objects=[cp], active_object=cp, selected_objects=[cp]):
             bpy.ops.object.convert(target='MESH')
-            for obj in context.selected_objects:
-                obj['tmp'] = True
+            cp['tmp'] = True
+        return cp  # return converted object, so it can be linked to highpoly collection
 
     @staticmethod
     def make_inst_real(context, src_obj, coll):
@@ -500,15 +501,23 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             for child  in root_empty_after_split.children_recursive:
                 child['tmp'] = True
                 if child.type in ('CURVE', 'CURVES', 'FONT'):
-                    self.obj_to_mesh(context, child, coll)
+                    CB_OT_CyclesBakeOps.obj_to_mesh(context, child, coll)
+            return root_empty_after_split
+
+    @staticmethod
+    def get_phyllotaxis_offset(index, spacing=5.0):
+        """Calculate phyllotaxis pattern offset for given index for even distribution of baked objects pairs."""
+        ### TODO: expose spacing as a property
+        golden_angle = 2.39996  # Approximately 137.5 degrees in radians
+        r = spacing * math.sqrt(index)
+        theta = index * golden_angle
+        return Vector(( r * math.cos(theta), r * math.sin(theta), 0))
 
     def scene_copy(self, context, bj):
         orig_world = context.scene.world
 
         temp_scn = bpy.data.scenes.new("MD_TEMP")
         context.window.scene = temp_scn  # set new scene as active
-
-
         temp_scn.render.engine = "CYCLES"
         temp_scn.world = orig_world  # copy world to temp scene
 
@@ -519,36 +528,47 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         out_hi_collection = bpy.data.collections.new('HIGHPOLY_MD_TMP')  # collection for highpoly objects
         temp_scn.collection.children.link(out_hi_collection)  # link highpoly collection to temp scene collection
         active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]  # get only activated pairs
-        for pair in active_pairs:
+        for i,pair in enumerate(active_pairs):
+            offset = self.get_phyllotaxis_offset(i)
+
             low_poly_obj = bpy.data.objects[pair.lowpoly]
-            lowpoly_objs.append(low_poly_obj)  # To merge them later
-            temp_scn.collection.objects.link(low_poly_obj)  # unlink all other lowpoly objects
+
+            low_poly_obj_cp = low_poly_obj.copy()
+            low_poly_obj_cp.matrix_world.translation += offset
+            lowpoly_objs.append(low_poly_obj_cp)  # To merge them later
+            temp_scn.collection.objects.link(low_poly_obj_cp)  # unlink all other lowpoly objects
 
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
                 for obj in hi_collection.objects:
                     if obj.type in ('CURVE', 'CURVES', 'FONT'):
-                        self.obj_to_mesh(context, obj, out_hi_collection)  # convert curve to mesh
+                        hi_obj = self.obj_to_mesh(context, obj, out_hi_collection)
+                        hi_obj.matrix_world.translation += offset
                     elif obj.type == 'EMPTY' and obj.instance_collection:
-                        self.make_inst_real(context, obj, out_hi_collection)  # convert empty instance to real object
+                        root_empty = self.make_inst_real(context, obj, out_hi_collection)
+                        root_empty.matrix_world.translation += offset
                     else:
-                        out_hi_collection.objects.link(obj)  # link all objects from hipoly group to highpoly collection
+                        cp = obj.copy()
+                        cp.matrix_world.translation += offset
+                        cp['tmp'] = True  # mark as tmp, so it can be deleted later
+                        out_hi_collection.objects.link(cp)
 
-            else: #pair.hp_type == "OBJ"
+            else:  # pair.hp_type == "OBJ"
                 hi_poly_obj = bpy.data.objects[pair.highpoly]
                 if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
-                    self.make_inst_real(context, hi_poly_obj, out_hi_collection)
-                elif hi_poly_obj.type in ('CURVE','CURVES', 'FONT'):  # try clone, convert to mesh, and add to highpoly if possible
-                    self.obj_to_mesh(context, hi_poly_obj, out_hi_collection)  # convert curve to mesh
+                    root_empty = self.make_inst_real(context, hi_poly_obj, out_hi_collection)
+                    root_empty.matrix_world.translation += offset
+                elif hi_poly_obj.type in ('CURVE', 'CURVES', 'FONT'):
+                    hi_obj = self.obj_to_mesh(context, hi_poly_obj, out_hi_collection)
+                    hi_obj.matrix_world.translation += offset
                 else:
-                    out_hi_collection.objects.link(hi_poly_obj)  # link all objects from hipoly group to highpoly collection
+                    cp = hi_poly_obj.copy()
+                    cp.matrix_world.translation += offset
+                    cp['tmp'] = True  # mark as tmp, so it can be deleted later
+                    out_hi_collection.objects.link(cp)
 
-        copy = lowpoly_objs[0].copy()
-        temp_scn.collection.objects.unlink(lowpoly_objs[0])  # unlink original lowpoly object
-        lowpoly_objs[0] = copy
         lowpoly_objs[0].data = lowpoly_objs[0].data.copy()
         lowpoly_objs[0].name = "LOWPOLY_MD_TMP"
-        temp_scn.collection.objects.link(lowpoly_objs[0])  # unlink all other lowpoly objects
 
         if len(lowpoly_objs) > 1:
             with bpy.context.temp_override(selected_editable_objects=lowpoly_objs, active_object=lowpoly_objs[0], selected_objects=lowpoly_objs):
