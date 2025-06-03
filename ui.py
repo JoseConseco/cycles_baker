@@ -1,0 +1,580 @@
+#  (c) 2025 Bartosz Styperek based on - by Piotr Adamowicz work 2014 (MadMinstrel)
+
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+# ##### END GPL LICENSE BLOCK #####
+
+
+import bpy
+
+class CB_PT_SDPanel(bpy.types.Panel):
+    bl_label = "Cycles Baking Tool"
+    bl_idname = "CB_PT_SDPanel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Cycles Baking"
+
+
+    def draw(self, context):
+        layout = self.layout
+        CyclesBakeSettings = context.scene.cycles_baker_settings
+
+        row = layout.row(align=True)
+        row.alignment = 'EXPAND'
+        row.operator("cycles.bake", text='Bake', icon="SCENE")
+
+        row = layout.row(align=True)
+        row.alignment = 'EXPAND'
+        row.separator()
+
+        for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
+
+            row = layout.row(align=True)
+            row.alignment = 'EXPAND'
+
+            if bj.expand is False:
+                row.prop(bj, "expand", icon="TRIA_RIGHT", icon_only=True, text=bj.name, emboss=False)
+
+                if bj.activated:
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
+                else:
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
+
+                oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
+                oper.bj_i = job_i
+                rem = row.operator("cyclesbake.rem_job", text="", icon="X")
+                rem.job_index = job_i
+            else:
+                row.prop(bj, "expand", icon="TRIA_DOWN", icon_only=True, text=bj.name, emboss=False)
+
+                if bj.activated:
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
+                else:
+                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_ON", emboss=False)
+
+                oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
+                oper.bj_i = job_i
+                rem = row.operator("cyclesbake.rem_job", text="", icon="X")
+                rem.job_index = job_i
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                row.prop(bj, 'bakeResolution', text="Resolution")
+
+                row = layout.row(align=True)
+                row.prop(bj, 'antialiasing', text="AA")
+
+                row = layout.row(align=True)
+                row.prop(bj, 'frontDistance', text="Front Distance")
+                row.prop(bj, 'relativeToBbox', text="", icon="GRID")
+
+                row = layout.row(align=True)
+                split = row.split(factor=0.70, align=True)
+                split.prop(bj, 'padding_mode', text='')
+                if bj.padding_mode == 'FIXED':
+                    split.prop(bj, 'padding_size', text='')
+                else:
+                    sub_r = split.row(align=True)
+                    sub_r.enabled = False
+                    sub_r.prop(bj, 'padding_size', text='')
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                row.prop(bj, 'output', text="Path")
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                row.prop(bj, 'name', text="Name")
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                for pair_i, pair in enumerate(bj.bake_pairs_list):
+                    row = layout.column(align=True).row(align=True)
+                    row.alignment = 'EXPAND'
+                    box = row.box().column(align=True)
+
+                    subrow = box.row(align=True)
+                    subrow.prop_search(pair, "lowpoly", bpy.context.scene, "objects")
+                    oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                    oper.bj_i = job_i
+                    oper.pair_i = pair_i
+                    oper.gr_obj = "object"
+                    oper.prop = "lowpoly"
+
+                    subrow = box.row(align=True)
+                    subrow.prop(pair, 'hp_type', expand=True)
+                    if pair.hp_type == 'OBJ':
+                        subrow.prop_search(pair, "highpoly", bpy.context.scene, "objects")
+                        oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                        oper.bj_i = job_i
+                        oper.pair_i = pair_i
+                        oper.gr_obj = "object"
+                        oper.prop = "highpoly"
+                    else:
+                        subrow.prop_search(pair, "highpoly", bpy.data, "collections")
+                        oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                        oper.bj_i = job_i
+                        oper.pair_i = pair_i
+                        oper.gr_obj = "group"
+                        oper.prop = "highpoly"
+                    subrow = box.row(align=True)
+
+                    subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
+                    if not pair.use_cage:
+                        subrow.prop(pair, 'front_distance_modulator', expand=True)
+                        subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
+                    else:
+                        subrow.prop_search(pair, "cage", bpy.context.scene, "objects")
+                        oper = subrow.operator("cyclesbake.cage_maker", text="", icon="OBJECT_DATAMODE")
+                        oper.lowpoly = pair.lowpoly
+                        oper.bj_i = job_i
+                        oper.pair_i = pair_i
+                        oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                        oper.bj_i = job_i
+                        oper.pair_i = pair_i
+                        oper.gr_obj = "object"
+                        oper.prop = "cage"
+
+                    col = row.column()
+                    row = col.row()
+                    rem = row.operator("cyclesbake.rem_pair", text="", icon="X")
+                    rem.pair_index = pair_i
+                    rem.job_index = job_i
+
+                    row = col.row()
+                    if pair.activated:
+                        row.prop(pair, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
+                    else:
+                        row.prop(pair, "activated", icon_only=True, icon="RESTRICT_RENDER_ON", emboss=False)
+                    row = col.row()
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                addpair = row.operator("cyclesbake.add_pair", icon="DISCLOSURE_TRI_RIGHT")
+                addpair.job_index = job_i
+
+                for pass_i, bakepass in enumerate(bj.bake_pass_list):
+                    row = layout.row(align=True)
+                    row.alignment = 'EXPAND'
+                    box = row.box().column(align=True)
+
+                    # box = layout.box().column(align=True)
+                    subrow = box.row(align=True)
+                    subrow.alignment = 'EXPAND'
+                    # subrow.label(text=bj.get_filepath())
+
+                    # rem = row.operator("cyclesbake.rem_pass", text = "", icon = "X")
+                    # rem.pass_index = pass_i
+                    # rem.job_index = job_i
+
+                    subrow = box.row(align=True)
+                    subrow.alignment = 'EXPAND'
+                    subrow.prop(bakepass, 'pass_name')
+
+                    subrow = box.row(align=True)
+                    subrow.alignment = 'EXPAND'
+                    subrow.prop(bakepass, 'suffix')
+
+                    if len(bakepass.props()) > 0:
+                        subrow = box.row(align=True)
+                        subrow.alignment = 'EXPAND'
+                        subrow.separator()
+
+                        if "ray_distrib" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'ray_distrib', text="Ray distribution")
+
+                        if "ao_distance" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'ao_distance', text="Maximum Occluder Distance")
+
+                        if "nm_space" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'nm_space', text="Type")
+
+                        if "position_mode" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'position_mode', text="Mode")
+
+                        if "position_mode_axis" in bakepass.props() and bakepass.position_mode == '1':
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'position_mode_axis', text="Axis")
+
+                        if "nm_invert" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'nm_invert', text="Flip G")
+
+                        if "bit_depth" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'bit_depth', text="Bit Depth")
+
+                        if "samples" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'samples', text="Samples")
+
+                        if "environment_group" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop(bakepass, 'environment_obj_vs_group', expand=True)
+                            if bakepass.environment_obj_vs_group == 'OBJ':
+                                subrow.prop_search(bakepass, "environment_group", bpy.context.scene, "objects")
+                            else:
+                                subrow.prop_search(bakepass, "environment_group", bpy.data, "collections")
+
+                    col = row.column()
+                    row = col.row()
+                    rem = row.operator("cyclesbake.rem_pass", text="", icon="X")
+                    rem.pass_index = pass_i
+                    rem.job_index = job_i
+
+                    row = col.row()
+                    if bakepass.activated:
+                        row.prop(bakepass, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
+                    else:
+                        row.prop(bakepass, "activated", icon_only=True, icon="RESTRICT_RENDER_ON", emboss=False)
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                addpass = row.operator("cyclesbake.add_pass", icon="DISCLOSURE_TRI_RIGHT")
+                addpass.job_index = job_i
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                row.separator()
+
+        row = layout.row(align=True)
+        row.alignment = 'EXPAND'
+        row.operator("cyclesbake.add_job", icon="ADD")
+
+
+class CB_OT_SDAddPairOp(bpy.types.Operator):
+    '''add pair'''
+
+    bl_idname = "cyclesbake.add_pair"
+    bl_label = "Add Pair"
+
+    job_index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        scene_name = bpy.context.scene.name
+        pair = bpy.data.scenes[scene_name].cycles_baker_settings.bake_job_queue[self.job_index].bake_pairs_list.add()
+        return {'FINISHED'}
+
+
+class CB_OT_SDRemPairOp(bpy.types.Operator):
+    '''delete pair'''
+
+    bl_idname = "cyclesbake.rem_pair"
+    bl_label = "Remove Pair"
+
+    pair_index: bpy.props.IntProperty()
+    job_index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        scene_name = bpy.context.scene.name
+        bpy.data.scenes[scene_name].cycles_baker_settings.bake_job_queue[self.job_index].bake_pairs_list.remove(self.pair_index)
+
+        return {'FINISHED'}
+
+
+class CB_OT_SDAddPassOp(bpy.types.Operator):
+    bl_idname = "cyclesbake.add_pass"
+    bl_label = "Add Pass"
+
+    job_index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        addonPref = bpy.context.preferences.addons['cycles_baker'].preferences
+        newpass = context.scene.cycles_baker_settings.bake_job_queue[self.job_index].bake_pass_list.add()
+        newpass.suffix = addonPref.NORMAL  # cos normal seems be default pass when added
+        return {'FINISHED'}
+
+
+class CB_OT_SDPassOp(bpy.types.Operator):
+    bl_idname = "cyclesbake.rem_pass"
+    bl_label = "Remove Pass"
+
+    pass_index: bpy.props.IntProperty()
+    job_index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        context.scene.cycles_baker_settings.bake_job_queue[self.job_index].bake_pass_list.remove(self.pass_index)
+        return {'FINISHED'}
+
+
+class CB_OT_SDAddJobOp(bpy.types.Operator):
+    bl_idname = "cyclesbake.add_job"
+    bl_label = "Add Bake Job"
+
+    def execute(self, context):
+        context.scene.cycles_baker_settings.bake_job_queue.add()
+        return {'FINISHED'}
+
+
+class CB_OT_SDRemJobOp(bpy.types.Operator):
+    bl_idname = "cyclesbake.rem_job"
+    bl_label = "Remove Bake Job"
+
+    job_index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        context.scene.cycles_baker_settings.bake_job_queue.remove(self.job_index)
+        return {'FINISHED'}
+
+
+class CB_OT_ObjectPicker(bpy.types.Operator):
+    bl_idname = "cyclesbake.objectpicker"
+    bl_label = "Pick Obj"
+    bj_i: bpy.props.IntProperty()
+    pair_i: bpy.props.IntProperty()
+    prop: bpy.props.StringProperty()
+    gr_obj: bpy.props.StringProperty()
+
+    def execute(self, context):
+        if context.active_object and context.active_object.select_get():
+            if self.gr_obj == "group" and self.prop == "highpoly":
+                context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.users_collection[0].name
+            else:
+                context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.name
+        return {'FINISHED'}
+
+
+class CB_OT_CageMaker(bpy.types.Operator):
+    bl_idname = "cyclesbake.cage_maker"
+    bl_label = "Create Cage"
+    bl_description = "Create new Cage object"
+
+    bj_i: bpy.props.IntProperty()
+    pair_i: bpy.props.IntProperty()
+    lowpoly: bpy.props.StringProperty()
+
+    def execute(self, context):
+        cageName = 'cage_' + self.lowpoly
+
+        if bpy.data.objects[self.lowpoly] is not None:
+            lowObj = bpy.data.objects[self.lowpoly]
+            cageObj = bpy.data.objects.new(cageName, lowObj.data.copy())  # duplicate obj but not instance
+            cageObj.matrix_world = lowObj.matrix_world
+            cageObj.show_wire = True
+            cageObj.show_all_edges = True
+            cageObj.draw_type = 'WIRE'
+            push_mod = cageObj.modifiers.new('Push', 'SHRINKWRAP')
+            push_mod.target = lowObj
+            push_mod.offset = 0.1
+            push_mod.offset = 0.1
+            push_mod.use_keep_above_surface = True
+            push_mod.wrap_method = 'PROJECT'
+            push_mod.use_negative_direction = True
+
+            vg = cageObj.vertex_groups.new(cageName + '_weigh')
+            weight = 1
+            for vert in lowObj.data.vertices:
+                vg.add([vert.index], weight, "ADD")
+
+            push_mod.vertex_group = vg.name
+
+            context.scene.objects.link(cageObj)
+            context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i].cage = cageObj.name
+        return {'FINISHED'}
+
+
+
+def abs_file_path(filePath):
+    abspathToFix = Path(bpy.path.abspath(filePath))  # crappy format like c:\\..\\...\\ddada.fbx
+    if not exists(str(abspathToFix)):
+        return filePath
+    outputPathStr = str(abspathToFix.resolve())
+    if abspathToFix.is_dir():
+        outputPathStr += '\\'
+    return outputPathStr
+
+
+class CB_OT_CyclesTexturePreview(bpy.types.Operator):
+    bl_idname = "cyclesbaker.texture_preview"
+    bl_label = "Cycles Bake preview"
+    bl_description = "Preview texture on model, by assigning bake result to lowpoly objects \n" \
+                     "Press Shift - to preview multiple bake jobs"
+
+    bj_i: bpy.props.IntProperty()
+    shiftClicked = False
+
+    def invoke(self, context, event):
+        if event.shift:
+            self.shiftClicked = True
+        return self.execute(context)
+
+    def attachCyclesmaterial(self, obj, mat):
+        if len(obj.material_slots) == 0:
+            obj.data.materials.append(mat)
+        else:
+            obj.material_slots[0].material = mat
+        if bpy.context.scene.render.engine == 'CYCLES':
+            obj.data.materials[0].use_nodes = True
+
+    def execute(self, context):
+        cycles_bake_settings = bpy.context.scene.cycles_baker_settings
+        if self.shiftClicked:
+            bjList = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
+        else:
+            bjList = [cycles_bake_settings.bake_job_queue[self.bj_i],]
+        addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
+        imagesFromBakePasses = []
+        for bj in bjList:
+            imagesFromBakePasses.clear()
+            for bakepass in bj.bake_pass_list:  # refresh or load images from bakes
+                if bakepass.activated:
+                    bakedImgPath = bj.get_filepath()[:-1] + '\\' + bakepass.get_filename(bj) + '.png'
+                    imgAlreadyExist = False
+                    oldImg = []
+                    for img in bpy.data.images:  # find if bake is already loaded into bi images
+                        if abs_file_path(bakedImgPath) == abs_file_path(img.filepath):
+                            if bakepass.activated:
+                                img.reload()
+                            imgAlreadyExist = True
+                            oldImg = img
+                            break
+                    if imgAlreadyExist:
+                        imagesFromBakePasses.append(oldImg)
+                        # print("found bake in bi images")
+                    else:
+                        try:
+                            im = bpy.data.images.load(bakedImgPath)
+                            imagesFromBakePasses.append(im)
+                        except:
+                            print("Skipping loading image, because it can't be loaded: " + bakedImgPath)
+                            imagesFromBakePasses.append(None)  # to preserve bakePass indexes
+                else:
+                    imagesFromBakePasses.append(None)  # to preserve breaking bakePass indexes
+            bpy.context.space_data.shading.type = 'MATERIAL'
+
+            mat = bpy.data.materials.get(bj.name)
+            if not mat:
+                mat = bpy.data.materials.new(name=bj.name)
+                mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
+            mat.use_nodes = True
+
+            obj_list = []
+            for pair in bj.bake_pairs_list:
+                if pair.lowpoly in bpy.data.objects.keys():  # create group for hipoly
+                    obj_list.append(bpy.data.objects[pair.lowpoly])
+
+            for obj in obj_list:
+                if obj.type == "MESH":
+                    self.attachCyclesmaterial(obj, mat)
+            if len(obj_list) == 0:
+                continue
+
+            matNodeTree = mat.node_tree
+            for node in matNodeTree.nodes:
+                matNodeTree.nodes.remove(node)
+            links = matNodeTree.links
+            principledNode = matNodeTree.nodes.new('ShaderNodeBsdfPrincipled')
+
+            principledNode.inputs['Roughness'].default_value = 0.4
+            principledNode.location = 1300, 200
+            outputNode = matNodeTree.nodes.new('ShaderNodeOutputMaterial')
+            outputNode.location = 1500, 200
+            links.new(principledNode.outputs[0], outputNode.inputs[0])
+            previousID_AO_Node = None
+            for bakeIndex, bakeImg in enumerate(imagesFromBakePasses):
+                if bakeImg == None:  # skip imgs that could not be loaded
+                    continue
+
+                bakepass = bj.bake_pass_list[bakeIndex]
+                # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
+                if bakepass.pass_name == "DIFFUSE" or bakepass.pass_name == "AO":
+                    imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgNode.name = bakepass.suffix
+                    imgNode.label = bakepass.suffix
+                    imgNode.location = bakeIndex * 100, bakeIndex * 10 + 380
+                    imgNode.image = bakeImg
+
+                    if previousID_AO_Node:
+                        mixNode = matNodeTree.nodes.new('ShaderNodeMixRGB')
+                        mixNode.location = bakeIndex * 100+200, bakeIndex * 10 + 100
+                        mixNode.inputs[0].default_value = 1
+                        if bakepass.pass_name == "AO":
+                            mixNode.blend_type = 'MULTIPLY'
+
+                        links.new(previousID_AO_Node.outputs[0], mixNode.inputs[2])
+                        links.new(imgNode.outputs[0], mixNode.inputs[1])
+                        links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
+                        previousID_AO_Node = mixNode
+                    else:  # first id or AO texture
+                        links.new(imgNode.outputs[0], principledNode.inputs['Base Color'])
+                        previousID_AO_Node = imgNode
+
+                elif bakepass.pass_name == "NORMAL":
+                    imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgNormalNode.name = bakepass.suffix
+                    imgNormalNode.label = bakepass.suffix
+                    bakeImg.colorspace_settings.name = 'Non-Color' #or normals
+                    imgNormalNode.image = bakeImg
+                    imgNormalNode.location = bakeIndex + 400, -400
+
+                    normalMapNode = matNodeTree.nodes.new('ShaderNodeNormalMap')
+                    normalMapNode.location = bakeIndex + 600, -400
+
+                    if bakepass.nm_invert == 'NEG_Y':  # use DX normal == flip green chanel
+                        if "FlipGreenChannel" not in bpy.data.node_groups.keys():
+                            script_file = os.path.realpath(__file__)
+                            filepath = os.path.dirname(script_file)+"\\baker_library.blend"
+                            # read node group
+                            with bpy.data.libraries.load(filepath) as (data_from, data_to):
+                                data_to.node_groups = ["FlipGreenChannel"]
+                        flipGreenNode = matNodeTree.nodes.new('ShaderNodeGroup')
+                        flipGreenNode.node_tree = bpy.data.node_groups['FlipGreenChannel']
+                        flipGreenNode.location = bakeIndex + 600, -400
+                        normalMapNode.location[0] += 200
+                        links.new(imgNormalNode.outputs[0], flipGreenNode.inputs[0])
+                        links.new(flipGreenNode.outputs[0], normalMapNode.inputs[1])
+                        links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
+                    else:
+                        links.new(imgNormalNode.outputs[0], normalMapNode.inputs[1])
+                        links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
+
+                elif bakepass.pass_name == "OPACITY":
+                    imgOpacityNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgOpacityNode.name = bakepass.suffix
+                    imgOpacityNode.label = bakepass.suffix
+                    imgOpacityNode.location = bakeIndex + 400, -200
+                    imgOpacityNode.image = bakeImg
+                    invert = matNodeTree.nodes.new('ShaderNodeInvert')
+                    invert.location = bakeIndex + 600, -200
+                    links.new(imgOpacityNode.outputs[0], invert.inputs[1])
+                    links.new(invert.outputs[0], principledNode.inputs['Transmission'])
+                    bpy.data.objects[pair.lowpoly].show_transparent = True
+                    bpy.data.objects[pair.lowpoly].material_slots[0].material.game_settings.alpha_blend = 'ALPHA_ANTIALIASING'
+
+                else:  # for all other just create img and do not link
+                    imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgNormalNode.name = bakepass.suffix
+                    imgNormalNode.label = bakepass.suffix
+                    imgNormalNode.image = bakeImg
+                    imgNormalNode.location = bakeIndex*(-400), bakeIndex * 200
+
+        return {'FINISHED'}
+
+
