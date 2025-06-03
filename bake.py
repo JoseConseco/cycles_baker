@@ -335,10 +335,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 temp_cage.name = f"TEMP_CAGE_{low_poly_obj_cp.name}"
                 temp_scn.collection.objects.link(temp_cage)
 
-                # Add displacement modifier
+                # Add displacement modifier - noo good - does not support split edges
                 # displace = temp_cage.modifiers.new(name="CAGE_DISPLACE", type='DISPLACE')
                 # displace.strength = get_raycast_distance(bj)
                 # displace.mid_level = 0.0
+                # I gueess there is no need to split lowpoly mesh too (maybe blender matches cage by face ids?)
                 gn_displce = add_geonodes_mod(temp_cage, "CAGE_GEONODES", "CycBaker_SplitExtrude")
                 gn_displce['Socket_2'] = get_raycast_distance(bj)  # set extrusion distance                                                 ]
                 with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
@@ -386,7 +387,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         # Merge cage objects if they exist
         if cage_objs:
             cage_objs[0].name = "CAGE_MD_TMP"
-
             if len(cage_objs) > 1:
                 with bpy.context.temp_override(selected_editable_objects=cage_objs, active_object=cage_objs[0], selected_objects=cage_objs):
                     bpy.ops.object.join()
