@@ -297,6 +297,16 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         temp_scn = bpy.data.scenes.new("MD_TEMP")
         context.window.scene = temp_scn  # set new scene as active
         temp_scn.render.engine = "CYCLES"
+        temp_scn.cycles.samples = 1 # main thing that affects bake speed..?
+        temp_scn.cycles.use_adaptive_sampling = False
+        temp_scn.cycles.device = 'GPU' if context.preferences.addons['cycles'].preferences.compute_device_type == 'CUDA' else 'CPU'
+        temp_scn.cycles.sampling_pattern = 'BLUE_NOISE'
+        temp_scn.cycles.max_bounces = 4
+        temp_scn.cycles.caustics_reflective = False
+        temp_scn.cycles.caustics_refractive = False
+        temp_scn.cycles.transmission_bounces = 2
+        temp_scn.cycles.transparent_max_bounces = 2
+
         temp_scn.world = orig_world  # copy world to temp scene
 
         # depsgraph = context.evaluated_depsgraph_get()
@@ -618,7 +628,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
             aa = int(bj.antialiasing)
             img_res = int(bj.bakeResolution)
-            padding = bj.padding_size if bj.padding_mode == 'FIXED' else int(img_res/64)
+            # padding = bj.padding_size if bj.padding_mode == 'FIXED' else int(img_res/64)
 
             active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated and len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0]
             for bakepass in active_bake_passes:

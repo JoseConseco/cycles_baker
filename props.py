@@ -85,7 +85,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
     material_override: bpy.props.StringProperty(name="Material Override", description="", default="")
     ao_distance: bpy.props.FloatProperty(name="Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
-    samples: bpy.props.IntProperty(name="Samples", description="", default=64, min=16, max=512)
+    samples: bpy.props.IntProperty(name="Samples", description="", default=32, min=8, max=512)
     suffix: bpy.props.StringProperty(name="Suffix", description="", default="")  # addon_prefs.NORMAL
 
     bake_all_highpoly: bpy.props.BoolProperty(name="Highpoly", default=False)
