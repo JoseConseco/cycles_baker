@@ -20,6 +20,8 @@
 
 
 import bpy
+from .utils import abs_file_path, import_node_group
+import os
 
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baking Tool"
@@ -401,16 +403,6 @@ class CB_OT_CageMaker(bpy.types.Operator):
 
 
 
-def abs_file_path(filePath):
-    abspathToFix = Path(bpy.path.abspath(filePath))  # crappy format like c:\\..\\...\\ddada.fbx
-    if not exists(str(abspathToFix)):
-        return filePath
-    outputPathStr = str(abspathToFix.resolve())
-    if abspathToFix.is_dir():
-        outputPathStr += '\\'
-    return outputPathStr
-
-
 class CB_OT_CyclesTexturePreview(bpy.types.Operator):
     bl_idname = "cyclesbaker.texture_preview"
     bl_label = "Cycles Bake preview"
@@ -538,14 +530,9 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     normalMapNode.location = bakeIndex + 600, -400
 
                     if bakepass.nm_invert == 'NEG_Y':  # use DX normal == flip green chanel
-                        if "FlipGreenChannel" not in bpy.data.node_groups.keys():
-                            script_file = os.path.realpath(__file__)
-                            filepath = os.path.dirname(script_file)+"\\baker_library.blend"
-                            # read node group
-                            with bpy.data.libraries.load(filepath) as (data_from, data_to):
-                                data_to.node_groups = ["FlipGreenChannel"]
+                        flip_ng = import_node_group("FlipGreenChannel")
                         flipGreenNode = matNodeTree.nodes.new('ShaderNodeGroup')
-                        flipGreenNode.node_tree = bpy.data.node_groups['FlipGreenChannel']
+                        flipGreenNode.node_tree = flip_ng
                         flipGreenNode.location = bakeIndex + 600, -400
                         normalMapNode.location[0] += 200
                         links.new(imgNormalNode.outputs[0], flipGreenNode.inputs[0])

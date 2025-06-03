@@ -32,10 +32,12 @@ bl_info = {
 if "bpy" in locals():
     import importlib
 
+    importlib.reload(utils)
     importlib.reload(bake)
     importlib.reload(ui)
     importlib.reload(props)
 else:
+    from . import utils
     from . import bake
     from . import ui
     from . import props

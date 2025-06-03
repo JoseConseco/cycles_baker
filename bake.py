@@ -13,6 +13,7 @@ from os.path import exists
 import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
+from .utils import abs_file_path, import_node_group, add_geonodes_mod
 
 def get_raycast_distance(bj):
     # low_poly = bpy.data.objects[pair.lowpoly]
@@ -335,9 +336,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 temp_scn.collection.objects.link(temp_cage)
 
                 # Add displacement modifier
-                displace = temp_cage.modifiers.new(name="CAGE_DISPLACE", type='DISPLACE')
-                displace.strength = get_raycast_distance(bj)
-                displace.mid_level = 0.0
+                # displace = temp_cage.modifiers.new(name="CAGE_DISPLACE", type='DISPLACE')
+                # displace.strength = get_raycast_distance(bj)
+                # displace.mid_level = 0.0
+                gn_displce = add_geonodes_mod(temp_cage, "CAGE_GEONODES", "CycBaker_SplitExtrude")
+                gn_displce['Socket_2'] = get_raycast_distance(bj)  # set extrusion distance                                                 ]
                 with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
                     bpy.ops.object.convert(target='MESH')
                 cage_objs.append(temp_cage)
@@ -387,7 +390,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             if len(cage_objs) > 1:
                 with bpy.context.temp_override(selected_editable_objects=cage_objs, active_object=cage_objs[0], selected_objects=cage_objs):
                     bpy.ops.object.join()
-
 
 
     def select_hi_low(self, bj):
