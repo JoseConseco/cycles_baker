@@ -483,22 +483,24 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             outputNode.location = 1700, 200
             links.new(principledNode.outputs[0], outputNode.inputs[0])
             previousID_AO_Node = None
+            offset_x = 600
             for bakeIndex, bakeImg in enumerate(imagesFromBakePasses):
                 if not bakeImg :  # skip imgs that could not be loaded
                     continue
 
+                y_pos = bakeIndex * 300
                 bakepass = bj.bake_pass_list[bakeIndex]
                 # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
                 if bakepass.pass_type in ("DIFFUSE" , "AO"):
                     imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNode.name = bakepass.suffix
                     imgNode.label = bakepass.suffix
-                    imgNode.location = bakeIndex * 100, bakeIndex * 10 + 380
+                    imgNode.location = offset_x, y_pos
                     imgNode.image = bakeImg
 
                     if previousID_AO_Node:
                         mixNode = matNodeTree.nodes.new('ShaderNodeMixRGB')
-                        mixNode.location = bakeIndex * 100+200, bakeIndex * 10 + 100
+                        mixNode.location = offset_x + 300, y_pos
                         mixNode.inputs[0].default_value = 1
                         if bakepass.pass_type == "AO":
                             mixNode.blend_type = 'MULTIPLY'
@@ -517,17 +519,17 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     imgNormalNode.label = bakepass.suffix
                     bakeImg.colorspace_settings.name = 'Non-Color' #or normals
                     imgNormalNode.image = bakeImg
-                    imgNormalNode.location = bakeIndex + 400, -400
+                    imgNormalNode.location = offset_x, y_pos
 
                     normalMapNode = matNodeTree.nodes.new('ShaderNodeNormalMap')
-                    normalMapNode.location = bakeIndex + 600, -400
+                    normalMapNode.location = offset_x + 300, y_pos
 
                     if bakepass.nm_invert == 'NEG_Y':  # use DX normal == flip green chanel
                         flip_ng = import_node_group("FlipGreenChannel")
                         flipGreenNode = matNodeTree.nodes.new('ShaderNodeGroup')
                         flipGreenNode.node_tree = flip_ng
-                        flipGreenNode.location = bakeIndex + 600, -400
-                        normalMapNode.location[0] += 200
+                        flipGreenNode.location = offset_x + 600, y_pos
+                        # normalMapNode.location[0] += 200
                         links.new(imgNormalNode.outputs[0], flipGreenNode.inputs[0])
                         links.new(flipGreenNode.outputs[0], normalMapNode.inputs[1])
                         links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
@@ -539,19 +541,16 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     imgOpacityNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgOpacityNode.name = bakepass.suffix
                     imgOpacityNode.label = bakepass.suffix
-                    imgOpacityNode.location = bakeIndex + 400, -200
+                    imgOpacityNode.location = offset_x, y_pos
                     imgOpacityNode.image = bakeImg
-                    invert = matNodeTree.nodes.new('ShaderNodeInvert')
-                    invert.location = bakeIndex + 600, -200
-                    links.new(imgOpacityNode.outputs[0], invert.inputs[1])
-                    links.new(invert.outputs[0], principledNode.inputs['Alpha'])
+                    links.new(imgOpacityNode.outputs[0], principledNode.inputs['Alpha'])
 
                 else:  # for all other just create img and do not link
                     imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNormalNode.name = bakepass.suffix
                     imgNormalNode.label = bakepass.suffix
                     imgNormalNode.image = bakeImg
-                    imgNormalNode.location = bakeIndex*(-400), bakeIndex * 200
+                    imgNormalNode.location = 800, y_pos
 
         return {'FINISHED'}
 
