@@ -21,6 +21,7 @@
 
 import bpy
 from bpy.props import *
+from pathlib import Path
 from .bake import draw_cage_callback
 
 
@@ -203,9 +204,8 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
     bake_pairs_list: bpy.props.CollectionProperty(type=CyclesBakePair)
     bake_pass_list: bpy.props.CollectionProperty(type=CyclesBakePass)
 
-    def get_filepath(self):
-        outPath = bpy.path.abspath(self.output)
-        return outPath  # [:-1]remove last \ - this is how sd works
+    def get_out_dir_path(self):
+        return Path(bpy.path.abspath(self.output)).resolve()
 
 
 

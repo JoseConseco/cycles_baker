@@ -62,13 +62,8 @@ def assign_material(obj, material_name, clear_materials=True):
 
 
 def abs_file_path(filePath):
-    abs_path = Path(bpy.path.abspath(filePath)).absolute()
-    if not abs_path.exists():
-        return str(filePath)
-    outputPath = abs_path.resolve()
-    if outputPath.is_dir():
-        outputPath = outputPath / ''  # This adds OS-specific separator
-    return str(outputPath)
+    path = Path(bpy.path.abspath(filePath))
+    return str(Path(path).resolve())
 
 
 # function to get all node groups in a node tree recursively

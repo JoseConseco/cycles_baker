@@ -639,8 +639,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                     render_target.pixels = np.concatenate((channel, alpha[:, np.newaxis]), axis=1).ravel()
 
                 render_target.scale(img_res, img_res)
-                imgPath = bj.get_filepath() + bakepass.get_filename(bj) + ".png"  # blender needs slash at end
-                render_target.filepath_raw = imgPath
+                imgPath = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
+                render_target.filepath_raw = str(imgPath)
                 render_target.save()
 
                 # render_target.user_clear()

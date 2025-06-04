@@ -20,6 +20,7 @@
 
 
 import bpy
+from pathlib import Path
 from .utils import abs_file_path, import_node_group, link_obj_to_same_collections
 
 class CB_PT_SDPanel(bpy.types.Panel):
@@ -171,7 +172,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     # box = layout.box().column(align=True)
                     subrow = box.row(align=True)
                     subrow.alignment = 'EXPAND'
-                    # subrow.label(text=bj.get_filepath())
+                    # subrow.label(text=bj.get_out_dir_path())
 
                     # rem = row.operator("cyclesbake.rem_pass", text = "", icon = "X")
                     # rem.pass_index = pass_i
@@ -431,11 +432,11 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             imagesFromBakePasses.clear()
             for bakepass in bj.bake_pass_list:  # refresh or load images from bakes
                 if bakepass.activated:
-                    bakedImgPath = bj.get_filepath()[:-1] + '\\' + bakepass.get_filename(bj) + '.png'
+                    bakedImgPath = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
                     imgAlreadyExist = False
                     oldImg = []
                     for img in bpy.data.images:  # find if bake is already loaded into bi images
-                        if abs_file_path(bakedImgPath) == abs_file_path(img.filepath):
+                        if bakedImgPath == abs_file_path(img.filepath):
                             if bakepass.activated:
                                 img.reload()
                             imgAlreadyExist = True
@@ -463,7 +464,8 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
             obj_list = []
             for pair in bj.bake_pairs_list:
-                if pair.lowpoly in bpy.data.objects.keys():  # create group for hipoly
+                lowpoly = bpy.data.objects.get(pair.lowpoly)
+                if lowpoly:  # create group for hipoly
                     obj_list.append(bpy.data.objects[pair.lowpoly])
 
             for obj in obj_list:
