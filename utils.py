@@ -1,7 +1,64 @@
-from pathlib import Path
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+# ##### END GPL LICENSE BLOCK #####
+
 import bpy
-from os.path import exists
 from pathlib import Path
+
+def get_addon_name():
+    return __package__.split(".")[0]
+
+def addon_name_lowercase():
+    return get_addon_name().lower()
+
+def get_addon_preferences():
+    return bpy.context.preferences.addons[get_addon_name()].preferences
+
+def clear_parent(obj):
+    parent = obj.parent
+    if parent:
+        obj.matrix_basis = parent.matrix_world @ obj.matrix_parent_inverse @ obj.matrix_basis
+        obj.parent = None
+
+
+def set_parent(obj, new_parent):
+    if obj.parent:
+        old_parent_m_w = obj.parent.matrix_world.copy() #backup cos we will change obj.parent below, so backup
+        backup_obj_mpi = obj.matrix_parent_inverse.copy()  # bug in blender: obj.parent = new_parent clears obj.matrix_parent_inverse so backup it
+        obj.parent = new_parent
+        new_m_p_inv = new_parent.matrix_world.inverted() @ old_parent_m_w @ backup_obj_mpi
+        obj.matrix_parent_inverse = new_m_p_inv
+    else:
+        obj.parent = new_parent
+        obj.matrix_parent_inverse = new_parent.matrix_world.inverted()
+
+def assign_material(obj, material_name, clear_materials=True):
+    '''Add material to obj. If clear_material is True - remove all slots except first.'''
+    mat = bpy.data.materials.get(material_name)
+    if not mat:
+        print('Material %s doesn\'t exist!' % (material_name))
+        return
+    if clear_materials is True:
+        while len(obj.material_slots) > 1:
+            obj.data.materials.pop()
+    if len(obj.material_slots) == 0:  # make sure first slot is assigned
+        obj.data.materials.append(mat)
+    else:
+        obj.material_slots[0].material = mat
 
 
 def abs_file_path(filePath):

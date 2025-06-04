@@ -242,9 +242,28 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     bl_description = "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def create_bake_mat_and_node(self):
-        low_obj = bpy.data.objects["LOWPOLY_MD_TMP"]
-        bake_mat = self.get_set_first_material_slot(low_obj)
+    @staticmethod
+    def get_set_first_material_slot(obj):
+        first_slot_mat = obj.material_slots[0].material if len(obj.material_slots) > 0 else None
+        if first_slot_mat:
+            first_slot_mat.use_nodes = True # be sure it has nodes for setting active img texture
+            return first_slot_mat
+        low_bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
+        if low_bake_mat is None:
+            low_bake_mat = bpy.data.materials.new(name="CyclesBakeMat_MD_TEMP")
+            # low_bake_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1.0)
+        low_bake_mat.use_nodes = True
+        # If no material slots exist, create one
+        if len(obj.material_slots) == 0:
+            obj.data.materials.append(None)
+        # Assign bake material to first slot
+        obj.material_slots[0].material = low_bake_mat
+        return low_bake_mat
+
+    @staticmethod
+    def create_bake_mat_and_node():
+        low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
+        bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(low_obj)
         imgnode = bake_mat.node_tree.nodes.get('MDtarget')
         if not imgnode:
             imgnode = bake_mat.node_tree.nodes.new(type="ShaderNodeTexImage")
@@ -484,24 +503,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         bpy.data.objects.remove(obj, do_unlink=True)
         if mesh is not None and mesh.users == 0:
             bpy.data.meshes.remove(mesh)
-
-    @staticmethod
-    def get_set_first_material_slot(obj):
-        first_slot_mat = obj.material_slots[0].material if len(obj.material_slots) > 0 else None
-        if first_slot_mat:
-            first_slot_mat.use_nodes = True # be sure it has nodes for setting active img texture
-            return first_slot_mat
-        low_bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
-        if low_bake_mat is None:
-            low_bake_mat = bpy.data.materials.new(name="CyclesBakeMat_MD_TEMP")
-            # low_bake_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1.0)
-        low_bake_mat.use_nodes = True
-        # If no material slots exist, create one
-        if len(obj.material_slots) == 0:
-            obj.data.materials.append(None)
-        # Assign bake material to first slot
-        obj.material_slots[0].material = low_bake_mat
-        return low_bake_mat
 
     def cleanup(self):
         scn_tmp = bpy.data.scenes["MD_TEMP"]

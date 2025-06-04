@@ -400,7 +400,7 @@ class CB_OT_CageMaker(bpy.types.Operator):
 
 class CB_OT_CyclesTexturePreview(bpy.types.Operator):
     bl_idname = "cyclesbaker.texture_preview"
-    bl_label = "Cycles Bake preview"
+    bl_label = "Preview Baked Texture"
     bl_description = "Preview texture on model, by assigning bake result to lowpoly objects \n" \
                      "Press Shift - to preview multiple bake jobs"
 
@@ -426,7 +426,6 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             bjList = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
         else:
             bjList = [cycles_bake_settings.bake_job_queue[self.bj_i],]
-        addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
         imagesFromBakePasses = []
         for bj in bjList:
             imagesFromBakePasses.clear()
@@ -449,9 +448,9 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                         try:
                             im = bpy.data.images.load(bakedImgPath)
                             imagesFromBakePasses.append(im)
-                        except:
-                            print("Skipping loading image, because it can't be loaded: " + bakedImgPath)
-                            imagesFromBakePasses.append(None)  # to preserve bakePass indexes
+                        except Exception as e:
+                            print(f"Cannot load image {bakedImgPath}: {str(e)}")
+                            imagesFromBakePasses.append(None)  # preserve index
                 else:
                     imagesFromBakePasses.append(None)  # to preserve breaking bakePass indexes
             bpy.context.space_data.shading.type = 'MATERIAL'
@@ -478,20 +477,19 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                 matNodeTree.nodes.remove(node)
             links = matNodeTree.links
             principledNode = matNodeTree.nodes.new('ShaderNodeBsdfPrincipled')
-
-            principledNode.inputs['Roughness'].default_value = 0.4
             principledNode.location = 1300, 200
+
             outputNode = matNodeTree.nodes.new('ShaderNodeOutputMaterial')
-            outputNode.location = 1500, 200
+            outputNode.location = 1700, 200
             links.new(principledNode.outputs[0], outputNode.inputs[0])
             previousID_AO_Node = None
             for bakeIndex, bakeImg in enumerate(imagesFromBakePasses):
-                if bakeImg == None:  # skip imgs that could not be loaded
+                if not bakeImg :  # skip imgs that could not be loaded
                     continue
 
                 bakepass = bj.bake_pass_list[bakeIndex]
                 # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
-                if bakepass.pass_type == "DIFFUSE" or bakepass.pass_type == "AO":
+                if bakepass.pass_type in ("DIFFUSE" , "AO"):
                     imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNode.name = bakepass.suffix
                     imgNode.label = bakepass.suffix
@@ -546,9 +544,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     invert = matNodeTree.nodes.new('ShaderNodeInvert')
                     invert.location = bakeIndex + 600, -200
                     links.new(imgOpacityNode.outputs[0], invert.inputs[1])
-                    links.new(invert.outputs[0], principledNode.inputs['Transmission'])
-                    bpy.data.objects[pair.lowpoly].show_transparent = True
-                    bpy.data.objects[pair.lowpoly].material_slots[0].material.game_settings.alpha_blend = 'ALPHA_ANTIALIASING'
+                    links.new(invert.outputs[0], principledNode.inputs['Alpha'])
 
                 else:  # for all other just create img and do not link
                     imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
