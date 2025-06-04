@@ -48,7 +48,6 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
 
 handleDrawRayDistance = []
 
-
 class CyclesBakePair(bpy.types.PropertyGroup):
     def drawCage(self, context):
         if self.draw_front_dist:
@@ -62,16 +61,19 @@ class CyclesBakePair(bpy.types.PropertyGroup):
                 bpy.types.SpaceView3D.draw_handler_remove(handleDrawRayDistance[0], 'WINDOW')
                 handleDrawRayDistance[:] = []
 
-    activated: bpy.props.BoolProperty(
-        name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
+    activated: bpy.props.BoolProperty( name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
     lowpoly: bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
     highpoly: bpy.props.StringProperty(name="", description="Highpoly mesh", default="")
-    hp_type: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
-                                            ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GROUP', '', 'Group', 'GROUP', 1)])
+    hp_type: bpy.props.EnumProperty( name="Object vs Group", description="", default="OBJ",
+        items=[
+            ('OBJ', '', 'Object', 'MESH_CUBE', 0,),
+            ('GROUP', '', 'Group', 'GROUP', 1,),
+        ]
+    )
     use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False)
     cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
-    front_distance_modulator: bpy.props.FloatProperty( name="Front distance modulator", description="", default=1.0, min=0, max=10, subtype='FACTOR')
-    draw_front_dist: bpy.props.BoolProperty( name="Draw Front distance", description="", default=False, update=drawCage)
+    ray_dist: bpy.props.FloatProperty( name="Ray distance", description="", default=1.0, min=0, max=10, subtype='FACTOR')
+    draw_front_dist: bpy.props.BoolProperty( name="Draw Front distance", description="Draw Front Distance Overlay", default=False, update=drawCage)
     no_materials: bpy.props.BoolProperty(name="No Materials", default=False)
 
 
@@ -79,22 +81,22 @@ class CyclesBakePair(bpy.types.PropertyGroup):
 class CyclesBakePass(bpy.types.PropertyGroup):
     def upSuffix(self, context):
         addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
-        if self.pass_name == "AO":
+        if self.pass_type == "AO":
             self.suffix = addon_prefs.AO
-        if self.pass_name == "NORMAL":
+        if self.pass_type == "NORMAL":
             self.suffix = addon_prefs.NORMAL
-        if self.pass_name == "DIFFUSE":
+        if self.pass_type == "DIFFUSE":
             self.suffix = addon_prefs.DIFFUSE
-        # if self.pass_name == "HEIGHT":
+        # if self.pass_type == "HEIGHT":
         #     self.suffix = addon_prefs.HEIGHT
-        if self.pass_name == "COMBINED":
+        if self.pass_type == "COMBINED":
             self.suffix = addon_prefs.COMBINED
-        if self.pass_name == "OPACITY":
+        if self.pass_type == "OPACITY":
             self.suffix = addon_prefs.OPACITY
 
     activated: bpy.props.BoolProperty(name="Activated", default=True)
 
-    pass_name: bpy.props.EnumProperty(name="Pass", default="NORMAL",
+    pass_type: bpy.props.EnumProperty(name="Pass", default="NORMAL",
                                       items=(
                                            ("DIFFUSE", "Diffuse Color", ""),
                                            ("AO", "Ambient Occlusion", ""),
@@ -142,13 +144,13 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
     def props(self):
         props = set()
-        if self.pass_name == "AO":
+        if self.pass_type == "AO":
             props = {"ao_distance", "samples", "environment_group", "ray_distrib"}
-        if self.pass_name == "NORMAL":
+        if self.pass_type == "NORMAL":
             props = {"nm_space", "nm_invert", "bit_depth"}
-        if self.pass_name == "NORMAL":
+        if self.pass_type == "NORMAL":
             props = {"nm_space", "nm_invert", "bit_depth"}
-        # if self.pass_name == "HEIGHT":
+        # if self.pass_type == "HEIGHT":
         #     props = {'bit_depth'}
 
         return props
@@ -195,12 +197,8 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
                                      description='The path of the output image.',
                                      default='//textures/',
                                      subtype='FILE_PATH')
-    name: bpy.props.StringProperty(name='name', description="Output texture name", default='bake')
+    name: bpy.props.StringProperty(name='name', description="Output texture name", default='bake_name')
 
-    relativeToBbox: bpy.props.BoolProperty(
-        name="Relative to bbox", description="Interpret the max distances as a factor of the mesh bounding box.", default=True)
-    frontDistance: bpy.props.FloatProperty(name="Max frontal distance",
-                                           description="Max ray scan distance outside lowpoly", default=0.02, min=0.0, max=1.0, precision=3)
 
     bake_pairs_list: bpy.props.CollectionProperty(type=CyclesBakePair)
     bake_pass_list: bpy.props.CollectionProperty(type=CyclesBakePass)

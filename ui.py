@@ -20,8 +20,7 @@
 
 
 import bpy
-from .utils import abs_file_path, import_node_group
-import os
+from .utils import abs_file_path, import_node_group, link_obj_to_same_collections
 
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baking Tool"
@@ -81,8 +80,12 @@ class CB_PT_SDPanel(bpy.types.Panel):
                 row.prop(bj, 'antialiasing', text="AA")
 
                 row = layout.row(align=True)
-                row.prop(bj, 'frontDistance', text="Front Distance")
-                row.prop(bj, 'relativeToBbox', text="", icon="CON_SIZELIMIT")
+                row.alignment = 'EXPAND'
+                row.prop(bj, 'output', text="Path")
+
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                row.prop(bj, 'name', text="Name")
 
                 row = layout.row(align=True)
                 split = row.split(factor=0.70, align=True)
@@ -93,14 +96,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     sub_r = split.row(align=True)
                     sub_r.enabled = False
                     sub_r.prop(bj, 'padding_size', text='')
-
-                row = layout.row(align=True)
-                row.alignment = 'EXPAND'
-                row.prop(bj, 'output', text="Path")
-
-                row = layout.row(align=True)
-                row.alignment = 'EXPAND'
-                row.prop(bj, 'name', text="Name")
 
                 row = layout.row(align=True)
                 row.alignment = 'EXPAND'
@@ -137,12 +132,11 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                     subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
                     if not pair.use_cage:
-                        subrow.prop(pair, 'front_distance_modulator', expand=True)
+                        subrow.prop(pair, 'ray_dist', expand=True)
                         subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
                     else:
                         subrow.prop_search(pair, "cage", bpy.context.scene, "objects")
-                        oper = subrow.operator("cyclesbake.cage_maker", text="", icon="OBJECT_DATAMODE")
-                        oper.lowpoly = pair.lowpoly
+                        oper = subrow.operator("cyclesbake.cage_maker", text="", icon="FILE_NEW")
                         oper.bj_i = job_i
                         oper.pair_i = pair_i
                         oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
@@ -185,7 +179,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                     subrow = box.row(align=True)
                     subrow.alignment = 'EXPAND'
-                    subrow.prop(bakepass, 'pass_name')
+                    subrow.prop(bakepass, 'pass_type')
 
                     subrow = box.row(align=True)
                     subrow.alignment = 'EXPAND'
@@ -370,35 +364,36 @@ class CB_OT_CageMaker(bpy.types.Operator):
 
     bj_i: bpy.props.IntProperty()
     pair_i: bpy.props.IntProperty()
-    lowpoly: bpy.props.StringProperty()
 
     def execute(self, context):
-        cageName = 'cage_' + self.lowpoly
+        bj = context.scene.cycles_baker_settings.bake_job_queue[self.bj_i]
+        pair = bj.bake_pairs_list[self.pair_i]
+        lowObj = bpy.data.objects.get(pair.lowpoly)
+        if not lowObj:
+            self.report({'ERROR'}, f"Lowpoly object '{self.lowpoly}' not found.")
+            return {'CANCELLED'}
 
-        if bpy.data.objects[self.lowpoly] is not None:
-            lowObj = bpy.data.objects[self.lowpoly]
-            cageObj = bpy.data.objects.new(cageName, lowObj.data.copy())  # duplicate obj but not instance
-            cageObj.matrix_world = lowObj.matrix_world
-            cageObj.show_wire = True
-            cageObj.show_all_edges = True
-            cageObj.draw_type = 'WIRE'
-            push_mod = cageObj.modifiers.new('Push', 'SHRINKWRAP')
-            push_mod.target = lowObj
-            push_mod.offset = 0.1
-            push_mod.offset = 0.1
-            push_mod.use_keep_above_surface = True
-            push_mod.wrap_method = 'PROJECT'
-            push_mod.use_negative_direction = True
+        # cageObj = bpy.data.objects.new('cage_' + self.lowpoly, lowObj.data.copy())  # duplicate obj but not instance
+        cageObj = lowObj.copy()  # linked copy
+        cageObj.matrix_world = lowObj.matrix_world
+        cageObj.show_wire = True
+        cageObj.show_all_edges = True
+        cageObj.display_type = 'WIRE'
+        push_mod = cageObj.modifiers.new('Push', 'DISPLACE')
+        push_mod.strength = 0.1
+        push_mod.direction = 'NORMAL'
+        push_mod.mid_level = 0  # This ensures displacement starts from the surface
+        push_mod.space = 'LOCAL'
 
-            vg = cageObj.vertex_groups.new(cageName + '_weigh')
-            weight = 1
-            for vert in lowObj.data.vertices:
-                vg.add([vert.index], weight, "ADD")
+        vg = cageObj.vertex_groups.new(name='displace_weight')
+        weight = 1
+        for vert in lowObj.data.vertices:
+            vg.add([vert.index], weight, "ADD")
 
-            push_mod.vertex_group = vg.name
+        push_mod.vertex_group = vg.name
 
-            context.scene.objects.link(cageObj)
-            context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i].cage = cageObj.name
+        link_obj_to_same_collections(lowObj, cageObj)
+        pair.cage = cageObj.name
         return {'FINISHED'}
 
 
@@ -496,7 +491,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
                 bakepass = bj.bake_pass_list[bakeIndex]
                 # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
-                if bakepass.pass_name == "DIFFUSE" or bakepass.pass_name == "AO":
+                if bakepass.pass_type == "DIFFUSE" or bakepass.pass_type == "AO":
                     imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNode.name = bakepass.suffix
                     imgNode.label = bakepass.suffix
@@ -507,7 +502,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                         mixNode = matNodeTree.nodes.new('ShaderNodeMixRGB')
                         mixNode.location = bakeIndex * 100+200, bakeIndex * 10 + 100
                         mixNode.inputs[0].default_value = 1
-                        if bakepass.pass_name == "AO":
+                        if bakepass.pass_type == "AO":
                             mixNode.blend_type = 'MULTIPLY'
 
                         links.new(previousID_AO_Node.outputs[0], mixNode.inputs[2])
@@ -518,7 +513,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                         links.new(imgNode.outputs[0], principledNode.inputs['Base Color'])
                         previousID_AO_Node = imgNode
 
-                elif bakepass.pass_name == "NORMAL":
+                elif bakepass.pass_type == "NORMAL":
                     imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgNormalNode.name = bakepass.suffix
                     imgNormalNode.label = bakepass.suffix
@@ -542,7 +537,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                         links.new(imgNormalNode.outputs[0], normalMapNode.inputs[1])
                         links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
 
-                elif bakepass.pass_name == "OPACITY":
+                elif bakepass.pass_type == "OPACITY":
                     imgOpacityNode = matNodeTree.nodes.new('ShaderNodeTexImage')
                     imgOpacityNode.name = bakepass.suffix
                     imgOpacityNode.label = bakepass.suffix

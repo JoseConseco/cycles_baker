@@ -41,6 +41,20 @@ def remap_node_groups(new_ngroups, original_ngroups, data_type='node_groups'):
                     data_handle.remove(old_node_gr)
                     new_ng.name = orig_ng_name
 
+def link_obj_to_same_collections(source_obj, clone, force_linking = True):
+    ''' Link obj to collections where source_obj is located '''
+    was_linked = False
+    for source_obj_coll_parent in source_obj.users_collection:
+        if clone.name not in source_obj_coll_parent.objects.keys():
+            source_obj_coll_parent.objects.link(clone)
+            was_linked = True
+
+    if source_obj.name in bpy.context.scene.collection.objects.keys():
+        if clone.name not in bpy.context.scene.collection.objects.keys():
+            bpy.context.scene.collection.objects.link(clone)
+            was_linked = True
+    if not was_linked and force_linking: #link to at least one collection
+        bpy.context.scene.collection.objects.link(clone)
 
 
 data_types = ['node_groups']  # 'materials', 'textures' etc from gpro

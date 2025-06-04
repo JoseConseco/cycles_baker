@@ -15,11 +15,10 @@ import numpy as np
 from gpu_extras.batch import batch_for_shader
 from .utils import abs_file_path, import_node_group, add_geonodes_mod
 
-def get_raycast_distance(bj):
-    # low_poly = bpy.data.objects[pair.lowpoly]
-    # objBBoxSize = Vector(low_poly.dimensions[:]).length/2 if bj.relativeToBbox else 1
-    # front = bj.frontDistance * pair.front_distance_modulator * objBBoxSize
-    return max(bj.frontDistance, 0)
+def get_raycast_distance(bj, pair):
+    low_poly = bpy.data.objects[pair.lowpoly]
+    objBBoxSize = 0.2*Vector(low_poly.dimensions[:]).length
+    return pair.ray_dist * objBBoxSize
 
 
 BG_color = {
@@ -27,8 +26,7 @@ BG_color = {
     "AO": np.array([1.0, 1.0, 1.0, 1.0]),
     "DIFFUSE": np.array([0.0, 0.0, 0.0, 0.0]),
     "OPACITY": np.array([0.0, 0.0, 0.0, 0.0]),
-    }
-
+}
 
 shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
 Verts = None
@@ -46,7 +44,7 @@ def draw_cage_callback(self, context):
                     parentBakeJob = bj
                     break
 
-        front = get_raycast_distance(parentBakeJob, self)
+        ray_dist = get_raycast_distance(parentBakeJob, self)
 
         mesh = low_poly.data
         vert_count = len(mesh.vertices)
@@ -62,7 +60,7 @@ def draw_cage_callback(self, context):
         mesh.vertices.foreach_get("normal", Normals.ravel())
         mesh.loop_triangles.foreach_get( "vertices", Indices.ravel())
 
-        Vertices = Vertices + Normals * front  # 0,86 to match substance ray distance
+        Vertices = Vertices + Normals * ray_dist  # 0,86 to match substance ray distance
 
         # old way to transform vertices with matrix
         # coords_4d = np.ones((vert_count, 4), 'f')
@@ -330,31 +328,23 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             cage = bpy.data.objects.get(pair.cage, None)
             if pair.use_cage and cage:
                 # Copy existing cage object
-                cage_obj = cage.copy()
-                if i == 0:
-                    cage_objs[0].data = cage_objs[0].data.copy() # to not affect original cage object
-                cage_obj['tmp'] = True  # mark as tmp, so it can be deleted later
-                cage_obj.matrix_world.translation += offset
-                temp_scn.collection.objects.link(cage_obj)
-                cage_objs.append(cage_obj)
+                temp_cage = cage.copy()
+                temp_cage.data = temp_cage.data.copy() # to not affect original cage object
+                temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
+                temp_cage.matrix_world.translation += offset
             else:
                 # Create temporary cage by displacing vertices along normals
                 temp_cage = low_poly_obj_cp.copy()
                 temp_cage.data = low_poly_obj_cp.data.copy()  # copy mesh data to not affect original
                 temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
                 temp_cage.name = f"TEMP_CAGE_{low_poly_obj_cp.name}"
-                temp_scn.collection.objects.link(temp_cage)
-
-                # Add displacement modifier - noo good - does not support split edges
-                # displace = temp_cage.modifiers.new(name="CAGE_DISPLACE", type='DISPLACE')
-                # displace.strength = get_raycast_distance(bj)
-                # displace.mid_level = 0.0
-                # I gueess there is no need to split lowpoly mesh too (maybe blender matches cage by face ids?)
                 gn_displce = add_geonodes_mod(temp_cage, "CAGE_GEONODES", "CycBaker_SplitExtrude")
-                gn_displce['Socket_2'] = get_raycast_distance(bj)  # set extrusion distance                                                 ]
-                with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
-                    bpy.ops.object.convert(target='MESH')
-                cage_objs.append(temp_cage)
+                gn_displce['Socket_2'] = get_raycast_distance(bj, pair)  # set extrusion distance                                                 ]
+
+            temp_scn.collection.objects.link(temp_cage)
+            with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
+                bpy.ops.object.convert(target='MESH')
+            cage_objs.append(temp_cage)
 
 
             if pair.hp_type == "GROUP":
@@ -444,35 +434,35 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         self.create_bake_mat_and_node()
         startTime = datetime.now()  # time debug
         scn = bpy.data.scenes["MD_TEMP"]
-        if bakepass.pass_name == "AO":
+        if bakepass.pass_type == "AO":
             scn.cycles.samples = bakepass.samples
             scn.world.light_settings.distance = bakepass.ao_distance
 
-        front_dist = get_raycast_distance(bake_job)
+        # front_dist = get_raycast_distance(bake_job)
 
-        pass_name = bakepass.pass_name
+        pass_type = bakepass.pass_type
         pass_components = {'NONE'}
-        if pass_name == "DIFFUSE":
-            pass_name = 'DIFFUSE'
+        if pass_type == "DIFFUSE":
+            pass_type = 'DIFFUSE'
             pass_components = {'COLOR'}
-        elif pass_name == "OPACITY":
-            pass_name = 'EMIT'
-        elif pass_name == 'COMBINED':
+        elif pass_type == "OPACITY":
+            pass_type = 'EMIT'
+        elif pass_type == 'COMBINED':
             pass_components = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
 
         aa = int(bake_job.antialiasing)
         res = int(bake_job.bakeResolution)
 
         padding = bake_job.padding_size if bake_job.padding_mode == 'FIXED' else int(res/64)
-        if bakepass.pass_name == "OPACITY":
+        if bakepass.pass_type == "OPACITY":
             padding = 0
 
         # cage_obj = bpy.data.objects.get("CAGE_MD_TMP", None)
-        bpy.ops.object.bake(type=pass_name, filepath="", pass_filter=pass_components,
+        bpy.ops.object.bake(type=pass_type, filepath="", pass_filter=pass_components,
                             width=res*aa, height=res*aa,
                             margin=padding*aa,
                             use_selected_to_active=True,
-                            cage_extrusion=front_dist,
+                            cage_extrusion=0,
                             normal_space=bakepass.nm_space,
                             normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
                             save_mode='INTERNAL',
@@ -482,7 +472,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             target='IMAGE_TEXTURES',
                             use_split_materials=False, use_automatic_name=False)
 
-        print("Baking set " + bakepass.pass_name + "  time: " + str(datetime.now() - startTime))
+        print("Baking set " + bakepass.pass_type + "  time: " + str(datetime.now() - startTime))
 
     @staticmethod
     def remove_object(obj):
@@ -633,11 +623,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated and len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0]
             for bakepass in active_bake_passes:
                 render_target = bpy.data.images.new("MDtarget", width=img_res*aa, height=img_res*aa, alpha=True, float_buffer=False)
-                render_target.generated_color = BG_color[bakepass.pass_name]
+                render_target.generated_color = BG_color[bakepass.pass_type]
                 self.select_hi_low(bj)
                 self.bake_pair_pass(bj, bakepass)
 
-                if bakepass.pass_name != "OPACITY":  # opacity is not saved to image
+                if bakepass.pass_type != "OPACITY":  # opacity is not saved to image
                     pass
                     # add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
                 else: # copy alpha to color
