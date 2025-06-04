@@ -82,7 +82,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                 row = layout.row(align=True)
                 row.prop(bj, 'frontDistance', text="Front Distance")
-                row.prop(bj, 'relativeToBbox', text="", icon="GRID")
+                row.prop(bj, 'relativeToBbox', text="", icon="CON_SIZELIMIT")
 
                 row = layout.row(align=True)
                 split = row.split(factor=0.70, align=True)

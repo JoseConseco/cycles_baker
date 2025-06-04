@@ -21,12 +21,13 @@
 bl_info = {
     "name": "Cycles Baker",
     "author": "Bartosz Styperek",
-    "version": (2, 0),
-    "blender": (4, 4, 0),
-    "location": "Npanel -> Tool shelf -> Baking (tab)",
-    "description": "Addon for baking with Cycles.",
+    "blender": (4, 2, 0),
+    "version": (2, 0, 0),
+    "location": "(N) Right Sidebar > Cycles Baking (tab)",
+    "description": "UI for baking with Cycles.",
     "warning": "",
-    "wiki_url": "",
+    "doc_url": "https://joseconseco.github.io/HairTool_3_Documentation/",
+    "tracker_url": "https://discord.gg/cxZDbqH",
     "category": "Object"}
 
 if "bpy" in locals():
@@ -63,8 +64,8 @@ def register():
 
 
 def unregister():
-    props.unregister_props()
     auto_load.unregister()
+    props.unregister_props()
     print("Unregistered Cycles Baker")
 
 
