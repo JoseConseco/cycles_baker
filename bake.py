@@ -242,6 +242,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     bl_description = "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
     bl_options = {'REGISTER', 'UNDO'}
 
+    bake_pair_index: bpy.props.IntProperty(name="Bake Pair Index", default=-1, description="Index of the bake pair to process")
+
     @staticmethod
     def get_set_first_material_slot(obj):
         first_slot_mat = obj.material_slots[0].material if len(obj.material_slots) > 0 else None
@@ -333,7 +335,13 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         lowpoly_objs = []
         out_hi_collection = bpy.data.collections.new('HIGHPOLY_MD_TMP')  # collection for highpoly objects
         temp_scn.collection.children.link(out_hi_collection)  # link highpoly collection to temp scene collection
-        active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]  # get only activated pairs
+
+        if self.bake_pair_index > -1 and self.bake_pair_index < len(bj.bake_pairs_list):
+            active_pairs = [bj.bake_pairs_list[self.bake_pair_index]]
+        else:
+            active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]  # get only activated pairs
+
+
         for i,pair in enumerate(active_pairs):
             offset = self.get_phyllotaxis_offset(i)
 
@@ -625,7 +633,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated and len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0]
             for bakepass in active_bake_passes:
                 render_target = bpy.data.images.new("MDtarget", width=img_res*aa, height=img_res*aa, alpha=True, float_buffer=False)
-                render_target.generated_color = BG_color[bakepass.pass_type]
+                bg =  BG_color[bakepass.pass_type]
+                if self.bake_pair_index != -1: # set alpha to 0 for single pair bake
+                    bg[3] = 0.0
+
+                render_target.generated_color = bg
                 self.select_hi_low(bj)
                 self.bake_pair_pass(bj, bakepass)
 
@@ -641,19 +653,36 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
                 render_target.scale(img_res, img_res)
                 imgPath = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
-                render_target.filepath_raw = str(imgPath)
+
+                old_img = bpy.data.images.load(filepath=imgPath, check_existing=True)
+                if self.bake_pair_index > -1 and old_img and old_img.size[0]==old_img.size[1]==img_res: # mix with old bake if exists
+                    old_img.reload()
+                    old_pixels = np.array(old_img.pixels, dtype='f')
+                    new_pixels = np.array(render_target.pixels, dtype='f')
+
+                    # reshape to (width*height, 4) - assign the result back to variables
+                    old_pixels = old_pixels.reshape(-1, 4)
+                    new_pixels = new_pixels.reshape(-1, 4)
+
+                    # get alpha channel from new pixels
+                    new_alpha = new_pixels[:, 3:4]  # keep as column vector for broadcasting
+                    blended_pixels = new_pixels * new_alpha + old_pixels * (1 - new_alpha)
+
+                    render_target.pixels = blended_pixels.ravel()  # set mixed pixels to render target
+
+                render_target.filepath_raw = imgPath
                 render_target.save()
 
                 # render_target.user_clear()
                 bpy.data.images.remove(render_target)
 
-                if path.isfile(imgPath):  # load bake from disk
-                    img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
-                    if img_users:
-                        for img in img_users:
-                            img.reload()  # reload done in baking
-                    else:
-                        img = bpy.data.images.load(filepath=imgPath)
+                # if path.isfile(imgPath):  # load bake from disk
+                img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
+                if img_users:
+                    for img in img_users:
+                        img.reload()  # reload done in baking
+                else:
+                    img = bpy.data.images.load(filepath=imgPath)
 
             self.cleanup()  # delete scene
 

@@ -34,6 +34,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         CyclesBakeSettings = context.scene.cycles_baker_settings
+        active_obj = context.active_object
 
         row = layout.row(align=True)
         row.alignment = 'EXPAND'
@@ -106,7 +107,8 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     box = row.box().column(align=True)
 
                     subrow = box.row(align=True)
-                    subrow.prop_search(pair, "lowpoly", bpy.context.scene, "objects")
+                    ic = "SNAP_FACE" if bpy.data.objects.get(pair.lowpoly) == active_obj else "OBJECT_DATA"
+                    subrow.prop_search(pair, "lowpoly", bpy.context.scene, "objects", icon=ic)
                     oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                     oper.bj_i = job_i
                     oper.pair_i = pair_i
@@ -116,7 +118,8 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     subrow = box.row(align=True)
                     subrow.prop(pair, 'hp_type', expand=True)
                     if pair.hp_type == 'OBJ':
-                        subrow.prop_search(pair, "highpoly", bpy.context.scene, "objects")
+                        ic = "SNAP_FACE" if bpy.data.objects.get(pair.highpoly) == active_obj else "OBJECT_DATA"
+                        subrow.prop_search(pair, "highpoly", bpy.context.scene, "objects", icon=ic)
                         oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                         oper.bj_i = job_i
                         oper.pair_i = pair_i
@@ -147,17 +150,14 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         oper.prop = "cage"
 
                     col = row.column()
-                    row = col.row()
-                    rem = row.operator("cyclesbake.rem_pair", text="", icon="X")
+                    rem = col.operator("cyclesbake.rem_pair", text="", icon="X")
                     rem.pair_index = pair_i
                     rem.job_index = job_i
 
-                    row = col.row()
-                    if pair.activated:
-                        row.prop(pair, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
-                    else:
-                        row.prop(pair, "activated", icon_only=True, icon="RESTRICT_RENDER_ON", emboss=False)
-                    row = col.row()
+                    col.operator("cycles.bake", text='', icon="SCENE").bake_pair_index = pair_i
+
+                    ic = "RESTRICT_RENDER_ON" if not pair.activated else "RESTRICT_RENDER_OFF"
+                    col.prop(pair, "activated", icon_only=True, icon=ic, emboss=False)
 
                 row = layout.row(align=True)
                 row.alignment = 'EXPAND'

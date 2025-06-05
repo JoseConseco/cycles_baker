@@ -182,7 +182,7 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
                                                   ("2048", "2048x2048", ""),
                                                   ("4096", "4096x4096", ""))
                                            )
-    antialiasing: bpy.props.EnumProperty(name="Anti-aliasing", description="Anti-aliasing", default="1",
+    antialiasing: bpy.props.EnumProperty(name="Anti-aliasing", description="It will render image n times bigger than render target, to create the AA affect", default="1",
                                          items=(("1", "None", ""),
                                                 ("2", "2x", ""),
                                                 ("4", "4x", "")))
