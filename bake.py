@@ -512,11 +512,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
         low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
         if low_obj:
+            bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(low_obj)
+            imgnode = bake_mat.node_tree.nodes.get('MDtarget')
+            if imgnode:
+                bake_mat.node_tree.nodes.remove(imgnode)  # remove bake image node
             self.remove_object(low_obj)  # remove lowpoly object
 
-        # for material in bpy.data.materials:
-        #     if material.name.endswith("_MD_TMP"):
-        #         bpy.data.materials.remove(material, do_unlink=True)
         bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
         if bake_mat:
             bpy.data.materials.remove(bake_mat, do_unlink=True)
