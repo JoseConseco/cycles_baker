@@ -20,7 +20,6 @@
 
 
 import bpy
-from bpy.props import *
 from pathlib import Path
 from .bake import draw_cage_callback
 
@@ -51,16 +50,29 @@ handleDrawRayDistance = []
 
 class CyclesBakePair(bpy.types.PropertyGroup):
     def drawCage(self, context):
-        if self.draw_front_dist:
-            if handleDrawRayDistance:
-                bpy.types.SpaceView3D.draw_handler_remove(handleDrawRayDistance[0], 'WINDOW')
 
-            args = (self, bpy.context)  # u can pass arbitrary class as first param  Instead of (self, context)
-            handleDrawRayDistance[:] = [bpy.types.SpaceView3D.draw_handler_add(draw_cage_callback, args, 'WINDOW', 'POST_VIEW')]
-        else:
+        global handleDrawRayDistance
+        if self.draw_front_dist:
+            # disable all other draw_front_dist
+            bjobs = context.scene.cycles_baker_settings.bake_job_queue
+            for bj in bjobs: # disable all draw_front_dist
+                for pair in bj.bake_pairs_list:
+                    if pair != self:
+                        pair['draw_front_dist'] = False
+
             if handleDrawRayDistance:
-                bpy.types.SpaceView3D.draw_handler_remove(handleDrawRayDistance[0], 'WINDOW')
-                handleDrawRayDistance[:] = []
+                for h in handleDrawRayDistance:
+                    bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+                handleDrawRayDistance.clear()
+
+            args = (self, context)  # u can pass arbitrary class as first param  Instead of (self, context)
+            handleDrawRayDistance.append(bpy.types.SpaceView3D.draw_handler_add(draw_cage_callback, args, 'WINDOW', 'POST_VIEW'))
+        else:
+
+            if handleDrawRayDistance:
+                for h in handleDrawRayDistance:
+                    bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+                handleDrawRayDistance.clear()
 
     activated: bpy.props.BoolProperty( name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
     lowpoly: bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
@@ -76,6 +88,7 @@ class CyclesBakePair(bpy.types.PropertyGroup):
     ray_dist: bpy.props.FloatProperty( name="Ray distance", description="", default=1.0, min=0, max=10, subtype='FACTOR')
     draw_front_dist: bpy.props.BoolProperty( name="Draw Front distance", description="Draw Front Distance Overlay", default=False, update=drawCage)
     no_materials: bpy.props.BoolProperty(name="No Materials", default=False)
+
 
 
 

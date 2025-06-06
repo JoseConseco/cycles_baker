@@ -557,3 +557,4 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
         return {'FINISHED'}
 
 
+
