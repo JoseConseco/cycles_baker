@@ -94,7 +94,6 @@ def get_installed_version():
 
 
 
-
 def str_version_to_float(ver_str):
     repi = ver_str.partition('.')
     cc = repi[0]+'.' + repi[2].replace('.', '')
@@ -103,11 +102,10 @@ def str_version_to_float(ver_str):
 
 def check_update_exist():
     tags_json = get_json_from_remonte()
-    remonte_ver_str = tags_json[-1]['version']
-    release_notes = tags_json[-1]['release_notes']
     installed_ver_float = str_version_to_float(get_installed_version())
-    remonte_ver_float = str_version_to_float(remonte_ver_str)
-    return remonte_ver_float > installed_ver_float, remonte_ver_str, release_notes
+    remonte_ver_float = str_version_to_float(tags_json[-1]['version'])
+    up_exists = remonte_ver_float > installed_ver_float
+    return up_exists, tags_json[-1]['version'], tags_json[-1]['release_notes'], tags_json[-1]['release_date']
 
 
 def get_latest_version_url():
@@ -230,12 +228,12 @@ class AddonCheckUpdateExist(bpy.types.Operator):
         if not is_connected():
             addon_prefs.update_text = 'Make sure you are connected to internet'
             return {'CANCELLED'}
-        update_exist, remonte_ver_str, release_notes = check_update_exist()
+        update_exist, remonte_ver_str, release_notes, release_date = check_update_exist()
         curr_ver_f = str_version_to_float(get_installed_version())
         rem_ver_f = str_version_to_float(remonte_ver_str)
         if update_exist:
             self.report({'INFO'}, f'Found new update: {remonte_ver_str}')
-            addon_prefs.update_text = f'Found new update: {remonte_ver_str}\nRelease notes:\n{release_notes}'
+            addon_prefs.update_text = f'Found new update: {remonte_ver_str} - Date {release_date}\nRelease notes:\n{release_notes}'
             addon_prefs.update_exist = True
         elif curr_ver_f == rem_ver_f:
             self.report({'INFO'}, 'You have the latest version')
