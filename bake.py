@@ -33,9 +33,9 @@ Verts = None
 Normals = None
 Indices = None
 def draw_cage_callback(self, context):
-    if not self.draw_front_dist or not self.lowpoly:
+    low_poly = bpy.data.objects.get( self.lowpoly )
+    if not self.draw_front_dist or not self.lowpoly or not low_poly:
         return
-    low_poly = bpy.data.objects[self.lowpoly]
     global Verts, Normals, Indices
     if low_poly.type == 'MESH' and context.mode == 'OBJECT':
         for bj in bpy.data.scenes['Scene'].cycles_baker_settings.bake_job_queue:
