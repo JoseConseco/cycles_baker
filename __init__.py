@@ -18,17 +18,17 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-bl_info = {
-    "name": "Cycles Baker",
-    "author": "Bartosz Styperek",
-    "blender": (4, 2, 0),
-    "version": (2, 0, 0),
-    "location": "(N) Right Sidebar > Cycles Baking (tab)",
-    "description": "UI for baking with Cycles.",
-    "warning": "",
-    "doc_url": "https://joseconseco.github.io/HairTool_3_Documentation/",
-    "tracker_url": "https://discord.gg/cxZDbqH",
-    "category": "Object"}
+# bl_info = {
+#     "name": "Cycles Baker",
+#     "author": "Bartosz Styperek",
+#     "blender": (4, 2, 0),
+#     "version": (2, 0, 0),
+#     "location": "(N) Right Sidebar > Cycles Baking (tab)",
+#     "description": "UI for baking with Cycles.",
+#     "warning": "",
+#     "doc_url": "https://joseconseco.github.io/HairTool_3_Documentation/",
+#     "tracker_url": "https://discord.gg/cxZDbqH",
+#     "category": "Object"}
 
 if "bpy" in locals():
     import importlib
@@ -42,7 +42,6 @@ else:
     from . import bake
     from . import ui
     from . import props
-
 
 
 # register

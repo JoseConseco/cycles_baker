@@ -29,7 +29,11 @@ def init():
 
 def register():
     for cls in ordered_classes:
-        bpy.utils.register_class(cls)
+        try:
+            bpy.utils.register_class(cls)
+        except Exception as e:
+            print(e)
+            print(f'Problem  re-registering class {cls}')
 
     for module in modules:
         if module.__name__ == __name__:
@@ -58,7 +62,7 @@ def unregister():
 #################################################
 
 def get_all_submodules(directory):
-    return list(iter_submodules(directory, directory.name))
+    return list(iter_submodules(directory,  __package__)) # blender 4.2 ver else : , directory.name))
 
 
 def iter_submodules(path, package_name):
