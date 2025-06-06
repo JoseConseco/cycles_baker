@@ -175,6 +175,7 @@ def reload_addon():
 
 def get_update(zip_url):
     current_dir = os.path.split(__file__)[0]
+    # root_dir_name = os.path.basename(current_dir)
     context = ssl._create_unverified_context()
 
     # Create a temporary directory for extraction
@@ -189,7 +190,6 @@ def get_update(zip_url):
         root_folder = next(os.walk(temp_dir))[1][0]
         source_dir = os.path.join(temp_dir, root_folder)
 
-        dupa
         # Clean current directory before update
         clean_dir(current_dir)
 
