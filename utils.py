@@ -20,13 +20,14 @@ import bpy
 from pathlib import Path
 
 def get_addon_name():
-    return __package__.split(".")[0]
+    return __package__.split(".")[-1]
 
 def addon_name_lowercase():
     return get_addon_name().lower()
 
 def get_addon_preferences():
-    return bpy.context.preferences.addons[get_addon_name()].preferences
+    # return bpy.context.preferences.addons[get_addon_name()].preferences
+    return bpy.context.preferences.addons[__package__].preferences
 
 def clear_parent(obj):
     parent = obj.parent

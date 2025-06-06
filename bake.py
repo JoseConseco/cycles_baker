@@ -13,7 +13,7 @@ from os.path import exists
 import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
-from .utils import abs_file_path, import_node_group, add_geonodes_mod
+from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod
 
 def get_raycast_distance(bj, pair):
     low_poly = bpy.data.objects[pair.lowpoly]
@@ -342,8 +342,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]  # get only activated pairs
 
 
+        addon_prefs = get_addon_preferences()
+
         for i,pair in enumerate(active_pairs):
-            offset = self.get_phyllotaxis_offset(i)
+            offset = self.get_phyllotaxis_offset(i, spacing=addon_prefs.pair_spacing_distance)
 
             low_poly_obj = bpy.data.objects[pair.lowpoly]
 

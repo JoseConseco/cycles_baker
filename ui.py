@@ -20,8 +20,7 @@
 
 
 import bpy
-from pathlib import Path
-from .utils import abs_file_path, import_node_group, link_obj_to_same_collections
+from .utils import abs_file_path, import_node_group, link_obj_to_same_collections, get_addon_preferences, addon_name_lowercase
 
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baking Tool"
@@ -264,6 +263,74 @@ class CB_PT_SDPanel(bpy.types.Panel):
         row = layout.row(align=True)
         row.alignment = 'EXPAND'
         row.operator("cyclesbake.add_job", icon="ADD")
+
+
+panels = (
+    CB_PT_SDPanel,
+)
+
+def update_panel(self, context):
+    message = "Cycles Baker: Updating Panel locations has failed"
+    try:
+        for panel in panels:
+            if "bl_rna" in panel.__dict__:
+                bpy.utils.unregister_class(panel)
+
+        for panel in panels:
+            panel.bl_category = get_addon_preferences().category
+            bpy.utils.register_class(panel)
+
+    except Exception as e:
+        print("\n[{}]\n{}\n\nError:\n{}".format(__name__, message, e))
+        pass
+
+
+
+
+class BlobFusionPreferences(bpy.types.AddonPreferences):
+    bl_idname = __package__
+
+
+    tabs: bpy.props.EnumProperty(name="Tabs", items=[("UPDATE", "Update", ""),
+                                                     ("SETTINGS", "Settings", ""),
+                                                     ("CATEGORY", "Category", ""),], default="UPDATE")
+
+    category: bpy.props.StringProperty(name="Tab Category", description="Choose a name for the category of the panel", default="Tools", update=update_panel)
+
+    update_exist: bpy.props.BoolProperty(name="Update Exist", description="There is new GroupPro update",  default=False)
+    update_text: bpy.props.StringProperty(name="Update text",  default='')
+
+    pair_spacing_distance: bpy.props.FloatProperty(name="Pair Spread Distance", description="Offset added between high-low pairs during bake, to prevent object pairs affecting each other", default=5.0, min=0.01, soft_max=10.0)
+
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row(align=True)
+        row.prop(self, "tabs", expand=True)
+        box = layout.box()
+        if self.tabs == "SETTINGS":
+            col = box.column(align=True)
+            col.prop(self, "pair_spacing_distance")
+
+        elif self.tabs == "UPDATE":
+            col = box.column()
+            sub_row = col.row(align=True)
+            sub_row.operator(addon_name_lowercase()+".check_for_update")
+            split_lines_text = self.update_text.splitlines()
+            for line in split_lines_text:
+                sub_row = col.row(align=True)
+                sub_row.label(text=line)
+            sub_row.separator()
+            sub_row = col.row(align=True)
+            if self.update_exist:
+                sub_row.operator(addon_name_lowercase()+".update_addon", text='Install latest version').reinstall = False
+            else:
+                sub_row.operator(addon_name_lowercase()+".update_addon", text='Reinstall current version').reinstall = True
+            sub_row.operator(addon_name_lowercase()+".rollback_addon")
+
+        elif self.tabs == "CATEGORY":
+            col = box.column()
+            col.prop(self, "category")
 
 
 class CB_OT_SDAddPairOp(bpy.types.Operator):

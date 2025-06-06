@@ -56,9 +56,11 @@ def register():
     # bpy.utils.register_class(hair_workspace_tool.GiGroup)
     auto_load.register()
     print("Registered Cycles Baker")
-    # addon_prefs = update_addon.get_addon_preferences()
-    # if addon_prefs:
-    #     addon_prefs.update_text = ''
+
+    addon_prefs = utils.get_addon_preferences()
+    addon_prefs.update_text = ''
+
+    ui.update_panel(None, bpy.context)
     props.register_props()
 
 
