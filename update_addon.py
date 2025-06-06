@@ -19,14 +19,16 @@ import bpy
 import zipfile
 import json
 import urllib.request
+import requests
 import addon_utils
 import os
 import shutil
 import sys
+import tempfile
 from io import BytesIO
 import socket
-TAGS_URL = ''
 
+TAGS_URL = "https://api.github.com/repos/JoseConseco/cycles_baker/releases"
 
 def is_connected():
     hostname = "www.google.com"
@@ -52,18 +54,26 @@ def addon_name_lowercase():
 def get_addon_preferences():
     return bpy.context.preferences.addons[__package__].preferences
 
-
 def get_json_from_remonte():
-    try:
-        gcontext = ssl.SSLContext()  # Only for gangstars this actually works
-        with urllib.request.urlopen(TAGS_URL, context=gcontext) as response:
-            remonte_json = response.read()
-    except urllib.request.HTTPError as err:
-        print('Could not read tags from server.')
-        print(err)
-        return None
-    tags_json = json.loads(remonte_json)
-    return tags_json
+    response = requests.get(TAGS_URL)
+    releases = response.json()
+    latest_release = releases[-1] if releases else {}
+
+    version = latest_release.get('tag_name', '0.0.0')
+    download_url = latest_release.get('zipball_url', '')
+    release_date = latest_release.get('published_at', '')
+    # ignore time get just data
+    release_date = release_date[:11]
+    release_name = latest_release.get('name', 'No name provided')
+
+    release_notes = latest_release.get('body', 'No release notes provided')
+
+    return [{
+        'version': version,
+        'release_date': release_date,
+        'download_url': download_url,
+        'release_notes': release_notes
+    }]
 
 
 def get_installed_version():
@@ -81,6 +91,8 @@ def get_installed_version():
     for a in addon_ver:
         installed_ver += str(a)+'.'
     return installed_ver[:-1]
+
+
 
 
 def str_version_to_float(ver_str):
@@ -164,41 +176,45 @@ def reload_addon():
 def get_update(zip_url):
     current_dir = os.path.split(__file__)[0]
     context = ssl._create_unverified_context()
-    zipdata = BytesIO(urllib.request.urlopen(zip_url, context=context).read())
-    #!Wont work on MAC:  zipdata = BytesIO(urllib.request.urlopen(zip_url).read())
-    # zipdata.seek(0) #move it back to beggining
-    addon_zip_file = zipfile.ZipFile(zipdata)
 
-    clean_dir(current_dir)  # remove old files before update
+    # Create a temporary directory for extraction
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Download and extract zip
+        with urllib.request.urlopen(zip_url, context=context) as response:
+            with BytesIO(response.read()) as zipdata:
+                with zipfile.ZipFile(zipdata) as zip_file:
+                    zip_file.extractall(temp_dir)
 
-    # addon_zip_file.extractall(directory_to_extract_to) #we could do this but zip contains weird root folder name
-    created_sub_dirs = []
-    for name in addon_zip_file.namelist():
-        if '/' not in name:
-            continue
-        top_folder = name[:name.index('/')+1]
-        if name == top_folder:
-            continue  # skip top level folder
-        subpath = name[name.index('/')+1:]
-        if subpath.startswith(('.vscode', '.vs', '.git', '__pycache__')):
-            continue
-        if subpath.endswith(('.pyc')):  # , 'update_addon.py'
-            continue
-        sub_path, file_name = os.path.split(subpath)  # splits
-        #bug - os.path.exists(os.path.join(current_dir, sub_path)) - dosent detect path created in previous iteraiton. Use created_sub_dirs, to store dirs
-        if sub_path and sub_path not in created_sub_dirs and not os.path.exists(os.path.join(current_dir, sub_path)):
-            try:
-                os.mkdir(os.path.join(current_dir, sub_path))
-                created_sub_dirs.append(sub_path)
-                # print("Extract - mkdir: ", os.path.join(current_dir, subpath))
-            except OSError as exc:
-                print("Could not create folder from zip")
-                return 'Install failed'
-        with open(os.path.join(current_dir, subpath), "wb") as outfile:
-            data = addon_zip_file.read(name)
-            outfile.write(data)
-            print("Extracting :", os.path.join(current_dir, subpath))
-    addon_zip_file.close()
+        # Get the root folder from the extracted content
+        root_folder = next(os.walk(temp_dir))[1][0]
+        source_dir = os.path.join(temp_dir, root_folder)
+
+        dupa
+        # Clean current directory before update
+        clean_dir(current_dir)
+
+        # Copy files while filtering
+        for root, dirs, files in os.walk(source_dir):
+            # Skip unwanted directories
+            dirs[:] = [d for d in dirs if not d.startswith(('.vscode', '.vs', '.git', '__pycache__'))]
+
+            # Calculate relative path
+            rel_path = os.path.relpath(root, source_dir)
+            if rel_path == '.':
+                rel_path = ''
+
+            # Create target directory
+            target_dir = os.path.join(current_dir, rel_path)
+            os.makedirs(target_dir, exist_ok=True)
+
+            # Copy files, skipping unwanted extensions
+            for file in files:
+                if not file.endswith('.pyc'):
+                    src_file = os.path.join(root, file)
+                    dst_file = os.path.join(target_dir, file)
+                    shutil.copy2(src_file, dst_file)
+                    print("Extracting:", dst_file)
+
     reload_addon()
     return
 

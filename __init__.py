@@ -37,11 +37,13 @@ if "bpy" in locals():
     importlib.reload(bake)
     importlib.reload(ui)
     importlib.reload(props)
+    importlib.reload(update_addon)
 else:
     from . import utils
     from . import bake
     from . import ui
     from . import props
+    from . import update_addon
 
 
 # register
