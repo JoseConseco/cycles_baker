@@ -690,7 +690,9 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
 
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
-        # self.playFinishSound()
+        addon_prefs = get_addon_preferences()
+        if addon_prefs.play_finish_sound:
+            self.playFinishSound()
 
         return {'FINISHED'}
 
@@ -698,19 +700,15 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     def playFinishSound():
         script_file = os.path.realpath(__file__)
         directory = os.path.dirname(script_file)
+        sound_path = os.path.join(directory, "finished.mp3")
+
         device = aud.Device()
+        sound = aud.Sound(sound_path)
 
-        sound = aud.Sound(os.path.join(directory, "finished.mp3"))
-
-        # play the audio, this return a handle to control play/pause
         handle = device.play(sound)
-        # if the audio is not too big and will be used often you can buffer it
-        sound_buffered = aud.Sound.buffer(sound, 24000.0)
-        handle_buffered = device.play(sound_buffered)
 
         # stop the sounds (otherwise they play until their ends)
-        handle.stop()
-        handle_buffered.stop()
+        # handle.stop()
 
 
 

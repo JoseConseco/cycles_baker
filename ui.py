@@ -301,6 +301,7 @@ class BlobFusionPreferences(bpy.types.AddonPreferences):
     update_text: bpy.props.StringProperty(name="Update text",  default='')
 
     pair_spacing_distance: bpy.props.FloatProperty(name="Pair Spread Distance", description="Offset added between high-low pairs during bake, to prevent object pairs affecting each other", default=5.0, min=0.01, soft_max=10.0)
+    play_finish_sound: bpy.props.BoolProperty(name="Play Finish Sound", description="Play sound when baking finished", default=True)
 
 
     def draw(self, context):
@@ -311,6 +312,7 @@ class BlobFusionPreferences(bpy.types.AddonPreferences):
         if self.tabs == "SETTINGS":
             col = box.column(align=True)
             col.prop(self, "pair_spacing_distance")
+            col.prop(self, "play_finish_sound")
 
         elif self.tabs == "UPDATE":
             col = box.column()
