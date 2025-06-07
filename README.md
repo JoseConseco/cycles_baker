@@ -10,3 +10,4 @@ Other features:
 * Simple AA option  (bakes image in higher resolution, then scale it down to get AA effect)
 * One click preview of baked textures onto lowpoly objects
 * Option for partial rebake (update baked textures for only one high-lowpoly pair of objects)
+* Built-in auto-updater
