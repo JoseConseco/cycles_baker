@@ -54,26 +54,32 @@ def addon_name_lowercase():
 def get_addon_preferences():
     return bpy.context.preferences.addons[__package__].preferences
 
+
 def get_json_from_remonte():
     response = requests.get(TAGS_URL)
     releases = response.json()
-    latest_release = releases[-1] if releases else {}
+    if not releases:
+        print("No releases found in the repository.")
+        return []
 
-    version = latest_release.get('tag_name', '0.0.0')
-    download_url = latest_release.get('zipball_url', '')
-    release_date = latest_release.get('published_at', '')
-    # ignore time get just data
-    release_date = release_date[:11]
-    release_name = latest_release.get('name', 'No name provided')
+    releases_list = []
+    for release in releases:
+        version = release.get('tag_name', '0.0.0')
+        download_url = release.get('zipball_url', '')
+        release_date = release.get('published_at', '')
+        release_date = release_date[:11]
+        release_notes = release.get('body', 'No release notes provided')
 
-    release_notes = latest_release.get('body', 'No release notes provided')
+        releases_list.append({
+            'version': version,
+            'release_date': release_date,
+            'download_url': download_url,
+            'release_notes': release_notes
+        })
 
-    return [{
-        'version': version,
-        'release_date': release_date,
-        'download_url': download_url,
-        'release_notes': release_notes
-    }]
+    # Reverse the list so newest release is at index -1
+    releases_list.reverse()
+    return releases_list
 
 
 def get_installed_version():
