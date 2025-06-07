@@ -7,7 +7,7 @@ maintainer = "JoseConseco"
 type = "add-on"
 website = "https://joseconseco.github.io/GroupProDocs/"
 tags = ["Object"]
-blender_version_min = "4.2.0"
+blender_version_min = "4.4.0"
 
 # blender_version_max = "5.1.0"
 
