@@ -28,7 +28,8 @@ import tempfile
 from io import BytesIO
 import socket
 
-TAGS_URL = "https://api.github.com/repos/JoseConseco/cycles_baker/releases"
+RELEASES_URL = "https://api.github.com/repos/JoseConseco/cycles_baker/releases"
+LATEST_COMMIT_URL = "https://api.github.com/repos/JoseConseco/cycles_baker/zipball"
 
 def is_connected():
     hostname = "www.google.com"
@@ -56,7 +57,7 @@ def get_addon_preferences():
 
 
 def get_json_from_remonte():
-    response = requests.get(TAGS_URL)
+    response = requests.get(RELEASES_URL)
     releases = response.json()
     if not releases:
         print("No releases found in the repository.")
@@ -259,14 +260,28 @@ class AddonUpdate(bpy.types.Operator):
     bl_description = "Download and install addon. May require blender restart"
     bl_options = {"REGISTER", "UNDO"}
 
-    reinstall: bpy.props.BoolProperty(name='Reinstall', description='Force reinstalling curernt version', default=False)
+    reinstall: bpy.props.BoolProperty(name='Reinstall', description='Force reinstalling current version', default=False)
+    daily_build: bpy.props.BoolProperty(name='Daily Build', description='Get latest development version (potentially unstable)', default=False)
+
+    # add docs description based on operator properties
+    @classmethod
+    def description(cls, context, properties):
+        if properties.reinstall:
+            return "Reinstall current version of the addon"
+        elif properties.daily_build:
+            return "Get latest development version of the addon (potentially unstable)"
+        else:
+            return "Download and install latest stable release of the addon"
 
     def execute(self, context):
         addon_prefs = get_addon_preferences()
         if not is_connected():
             addon_prefs.update_text = 'Make sure you are connected to internet'
             return {'CANCELLED'}
-        if self.reinstall:
+
+        if self.daily_build:
+            latest_zip_url = LATEST_COMMIT_URL
+        elif self.reinstall:
             latest_zip_url = get_current_version_url()
         else:
             latest_zip_url = get_latest_version_url()
@@ -275,7 +290,10 @@ class AddonUpdate(bpy.types.Operator):
             print('Downloading addon')
             addon_prefs.update_text = 'Downloading addon'
             get_update(latest_zip_url)
-            text = 'reinstalled' if self.reinstall else 'updated'
+            if self.daily_build:
+                text = 'updated to latest development version'
+            else:
+                text = 'reinstalled' if self.reinstall else 'updated'
             self.report({'INFO'}, f'Addon {text}')
             addon_prefs.update_text = f'Addon {text}. Consider restarting blender'
             addon_prefs.update_exist = False

@@ -328,6 +328,7 @@ class BlobFusionPreferences(bpy.types.AddonPreferences):
                 sub_row.operator(addon_name_lowercase()+".update_addon", text='Install latest version').reinstall = False
             else:
                 sub_row.operator(addon_name_lowercase()+".update_addon", text='Reinstall current version').reinstall = True
+            sub_row.operator(addon_name_lowercase()+".update_addon", text='Grab Latest Daily Build').daily_build = True
             sub_row.operator(addon_name_lowercase()+".rollback_addon")
 
         elif self.tabs == "CATEGORY":
