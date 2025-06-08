@@ -612,11 +612,18 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if self.is_empty_mat(context):
             return {'CANCELLED'}
 
+        wm = context.window_manager
+
         active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
+
+        total_steps = sum(len([p for p in bj.bake_pass_list if p.activated]) for bj in active_bj)
+        wm.progress_begin(0, total_steps)
+        current_step = 0
         for bj in active_bj:
             # ensure save path exists
             if not os.path.exists(bpy.path.abspath(bj.output)):
                 os.makedirs(bpy.path.abspath(bj.output))
+
 
             for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not defined
                 if pair.lowpoly == "" or not bpy.data.objects.get(pair.lowpoly):
@@ -633,7 +640,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             # padding = bj.padding_size if bj.padding_mode == 'FIXED' else int(img_res/64)
 
             active_bake_passes = [bakepass for bakepass in bj.bake_pass_list if bakepass.activated and len(bj.bake_pass_list) > 0 and len(bj.bake_pairs_list) > 0]
+
             for bakepass in active_bake_passes:
+                wm.progress_update(current_step)
+                current_step += 1
+                self.report({'INFO'}, f"Baking {bakepass.pass_type} ({current_step}/{total_steps})")
                 render_target = bpy.data.images.new("MDtarget", width=img_res*aa, height=img_res*aa, alpha=True, float_buffer=False)
                 bg =  BG_color[bakepass.pass_type]
                 if self.bake_pair_index != -1: # set alpha to 0 for single pair bake
@@ -687,6 +698,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                     img = bpy.data.images.load(filepath=imgPath)
 
             self.cleanup()  # delete scene
+            wm.progress_end()
 
 
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
