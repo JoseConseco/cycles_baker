@@ -205,16 +205,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
                             subrow.alignment = 'EXPAND'
                             subrow.prop(bakepass, 'nm_space', text="Type")
 
-                        if "position_mode" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'position_mode', text="Mode")
-
-                        if "position_mode_axis" in bakepass.props() and bakepass.position_mode == '1':
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'position_mode_axis', text="Axis")
-
                         if "nm_invert" in bakepass.props():
                             subrow = box.row(align=True)
                             subrow.alignment = 'EXPAND'

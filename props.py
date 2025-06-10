@@ -120,8 +120,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                         #    ("COMBINED", "Combined", ""),
                                       ), update=upSuffix)
 
-    material_override: bpy.props.StringProperty(name="Material Override", description="", default="")
-    ao_distance: bpy.props.FloatProperty(name="Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
+    ao_distance: bpy.props.FloatProperty(name="Maximum Occluder Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
     samples: bpy.props.IntProperty(name="Samples", description="", default=32, min=8, max=512)
     suffix: bpy.props.StringProperty(name="Suffix", description="", default="")  # addon_prefs.NORMAL
 
@@ -135,22 +134,13 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                              ("1", "16 bit", "")
                                              ))
 
-    nm_space: bpy.props.EnumProperty(name="Normal map space", default="TANGENT",
+    nm_space: bpy.props.EnumProperty(name='Type',description="Normal map space", default="TANGENT",
                                      items=(("TANGENT", "Tangent Space", ""),
                                             ("OBJECT", "World Space", "")))
-    nm_invert: bpy.props.EnumProperty(name="Invert green channel", default="POS_Y",
+    nm_invert: bpy.props.EnumProperty(name="Flip G", description="Invert green channel", default="POS_Y",
                                       items=(("POS_Y", "OpenGL", "Blender Compatible"),
                                              ("NEG_Y", "DirectX", "")))
 
-    position_mode: bpy.props.EnumProperty(name="Mode", default="0",
-                                          items=(("0", "All Axis", "bakes the position on the x,y, and z axis in the rgb channels"),
-                                                 ("1", "One Axis", "bakes a single axis in a greyscale image")))
-
-    position_mode_axis: bpy.props.EnumProperty(name="Axis", description="", default="1",
-                                               items=(("0", "X", ""),
-                                                      ("2", "Y", ""),
-                                                      ("1", "Z (default)", "Default")
-                                                      ))
     ray_distrib: bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
                                         items=(("0", "Uniform", ""),
                                                ("1", "Cosine", "")
