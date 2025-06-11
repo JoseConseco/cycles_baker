@@ -3,12 +3,9 @@ from numpy.lib.stride_tricks import as_strided
 import bpy
 import aud
 import math
-from os import path
 from bpy.props import *
 from mathutils import Vector
 from datetime import datetime
-from pathlib import Path
-from os.path import exists
 
 import gpu
 import numpy as np
@@ -20,6 +17,9 @@ def get_raycast_distance(bj, pair):
     objBBoxSize = 0.2*Vector(low_poly.dimensions[:]).length
     return pair.ray_dist * objBBoxSize
 
+AO_NODES = "CB_AOPass"
+DEPTH_NODES = "CB_DepthPass"
+CURVATURE_NODES = "CB_CurvaturePass"
 
 BG_color = {
     "NORMAL": np.array([0.5, 0.5, 1.0, 1.0]),

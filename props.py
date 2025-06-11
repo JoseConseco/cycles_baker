@@ -21,29 +21,8 @@
 
 import bpy
 from pathlib import Path
+from .utils import get_addon_preferences
 from .bake import draw_cage_callback
-
-
-class CyclesBakerPreferences(bpy.types.AddonPreferences):
-    bl_idname = 'cycles_baker'
-
-    Info: bpy.props.StringProperty(name="Info", description="", default="")
-    DIFFUSE: bpy.props.StringProperty(name="Mat ID suffix", description="", default='id')
-    AO: bpy.props.StringProperty(name="AO suffix", description="", default='ao')
-    NORMAL: bpy.props.StringProperty(name="NORMAL suffix", description="", default="nrm")
-    # HEIGHT: bpy.props.StringProperty(name="Height map suffix", description="", default="heig")
-    OPACITY: bpy.props.StringProperty(name="Opacity map suffix", description="", default="opacity")
-    COMBINED: bpy.props.StringProperty(name="Combined map suffix", description="", default="combined")
-
-    def draw(self, context):
-        layout = self.layout
-        layout.label(text=self.Info)
-        layout.prop(self, "DIFFUSE")
-        layout.prop(self, "AO")
-        layout.prop(self, "NORMAL")
-        # layout.prop(self, "HEIGHT")
-        # layout.prop(self, "COMBINED")
-        layout.prop(self, "OPACITY")
 
 
 handleDrawRayDistance = []
@@ -93,21 +72,6 @@ class CyclesBakePair(bpy.types.PropertyGroup):
 
 
 class CyclesBakePass(bpy.types.PropertyGroup):
-    def upSuffix(self, context):
-        addon_prefs = bpy.context.preferences.addons['cycles_baker'].preferences
-        if self.pass_type == "AO":
-            self.suffix = addon_prefs.AO
-        if self.pass_type == "NORMAL":
-            self.suffix = addon_prefs.NORMAL
-        if self.pass_type == "DIFFUSE":
-            self.suffix = addon_prefs.DIFFUSE
-        # if self.pass_type == "HEIGHT":
-        #     self.suffix = addon_prefs.HEIGHT
-        if self.pass_type == "COMBINED":
-            self.suffix = addon_prefs.COMBINED
-        if self.pass_type == "OPACITY":
-            self.suffix = addon_prefs.OPACITY
-
     activated: bpy.props.BoolProperty(name="Activated", default=True)
 
     pass_type: bpy.props.EnumProperty(name="Pass", default="NORMAL",
@@ -118,11 +82,10 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                         #    ("HEIGHT", "Height", ""),
                                            ("OPACITY", "Opacity mask", ""),
                                         #    ("COMBINED", "Combined", ""),
-                                      ), update=upSuffix)
+                                      ))
 
     ao_distance: bpy.props.FloatProperty(name="Maximum Occluder Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
     samples: bpy.props.IntProperty(name="Samples", description="", default=32, min=8, max=512)
-    suffix: bpy.props.StringProperty(name="Suffix", description="", default="")  # addon_prefs.NORMAL
 
     bake_all_highpoly: bpy.props.BoolProperty(name="Highpoly", default=False)
     environment_obj_vs_group: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
@@ -159,11 +122,22 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
         return props
 
+    def get_pass_suffix(self):
+        addon_prefs = get_addon_preferences()
+        suffix_map = {
+            "AO": addon_prefs.AO,
+            "NORMAL": addon_prefs.NORMAL,
+            "DIFFUSE": addon_prefs.DIFFUSE,
+            "COMBINED": addon_prefs.COMBINED,
+            "OPACITY": addon_prefs.OPACITY
+        }
+        return suffix_map.get(self.pass_type, "")
 
     def get_filename(self, bj):
         name = bj.name
-        if len(self.suffix) > 0:
-            name += "_" + self.suffix
+        suffix = self.get_pass_suffix()
+        if len(suffix) > 0:
+            name += "_" + suffix
         return name
 
 

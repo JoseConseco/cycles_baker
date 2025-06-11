@@ -181,10 +181,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     subrow.alignment = 'EXPAND'
                     subrow.prop(bakepass, 'pass_type')
 
-                    subrow = box.row(align=True)
-                    subrow.alignment = 'EXPAND'
-                    subrow.prop(bakepass, 'suffix')
-
                     if len(bakepass.props()) > 0:
                         subrow = box.row(align=True)
                         subrow.alignment = 'EXPAND'
@@ -280,6 +276,12 @@ def update_panel(self, context):
 class BlobFusionPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
+    DIFFUSE: bpy.props.StringProperty(name="Mat ID", description="", default='id')
+    AO: bpy.props.StringProperty(name="AO", description="", default='ao')
+    NORMAL: bpy.props.StringProperty(name="Normal", description="", default="nrm")
+    # HEIGHT: bpy.props.StringProperty(name="Height map", description="", default="heig")
+    OPACITY: bpy.props.StringProperty(name="Opacity map", description="", default="opacity")
+    COMBINED: bpy.props.StringProperty(name="Combined map", description="", default="combined")
 
     tabs: bpy.props.EnumProperty(name="Tabs", items=[("UPDATE", "Update", ""),
                                                      ("SETTINGS", "Settings", ""),
@@ -303,6 +305,14 @@ class BlobFusionPreferences(bpy.types.AddonPreferences):
             col = box.column(align=True)
             col.prop(self, "pair_spacing_distance")
             col.prop(self, "play_finish_sound")
+            col.separator()
+            col.label(text="Texture Suffixes:")
+            col.prop(self, "DIFFUSE")
+            col.prop(self, "AO")
+            col.prop(self, "NORMAL")
+            # col.prop(self, "HEIGHT")
+            # col.prop(self, "COMBINED")
+            col.prop(self, "OPACITY")
 
         elif self.tabs == "UPDATE":
             col = box.column()
@@ -365,7 +375,6 @@ class CB_OT_SDAddPassOp(bpy.types.Operator):
     def execute(self, context):
         addonPref = bpy.context.preferences.addons['cycles_baker'].preferences
         newpass = context.scene.cycles_baker_settings.bake_job_queue[self.job_index].bake_pass_list.add()
-        newpass.suffix = addonPref.NORMAL  # cos normal seems be default pass when added
         return {'FINISHED'}
 
 
@@ -555,8 +564,8 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                 # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
                 if bakepass.pass_type in ("DIFFUSE" , "AO"):
                     imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
-                    imgNode.name = bakepass.suffix
-                    imgNode.label = bakepass.suffix
+                    imgNode.name = bakepass.get_pass_suffix()
+                    imgNode.label = bakepass.get_pass_suffix()
                     imgNode.location = offset_x, y_pos
                     imgNode.image = bakeImg
 
@@ -577,8 +586,8 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
                 elif bakepass.pass_type == "NORMAL":
                     imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
-                    imgNormalNode.name = bakepass.suffix
-                    imgNormalNode.label = bakepass.suffix
+                    imgNormalNode.name = bakepass.get_pass_suffix()
+                    imgNormalNode.label = bakepass.get_pass_suffix()
                     bakeImg.colorspace_settings.name = 'Non-Color' #or normals
                     imgNormalNode.image = bakeImg
                     imgNormalNode.location = offset_x, y_pos
@@ -601,16 +610,16 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
                 elif bakepass.pass_type == "OPACITY":
                     imgOpacityNode = matNodeTree.nodes.new('ShaderNodeTexImage')
-                    imgOpacityNode.name = bakepass.suffix
-                    imgOpacityNode.label = bakepass.suffix
+                    imgOpacityNode.name = bakepass.get_pass_suffix()
+                    imgOpacityNode.label = bakepass.get_pass_suffix()
                     imgOpacityNode.location = offset_x, y_pos
                     imgOpacityNode.image = bakeImg
                     links.new(imgOpacityNode.outputs[0], principledNode.inputs['Alpha'])
 
                 else:  # for all other just create img and do not link
                     imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
-                    imgNormalNode.name = bakepass.suffix
-                    imgNormalNode.label = bakepass.suffix
+                    imgNormalNode.name = bakepass.get_pass_suffix()
+                    imgNormalNode.label = bakepass.get_pass_suffix()
                     imgNormalNode.image = bakeImg
                     imgNormalNode.location = 800, y_pos
 
