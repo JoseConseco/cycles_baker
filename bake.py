@@ -12,6 +12,37 @@ import numpy as np
 from gpu_extras.batch import batch_for_shader
 from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod
 
+
+def add_split_extrude_mod(obj, displace_val):
+    gn_displce = add_geonodes_mod(obj, "Cage CBaker", "CycBaker_SplitExtrude")
+    #  'Socket_2' > 'Offset'
+    gn_displace[params['Socket_2']] = displace_val  # set extrusion distance
+    return gn_displce
+
+def add_collection_to_mesh_mod(obj, coll)
+    coll_to_mesh = add_geonodes_mod(obj, "Collection To Mesh CBaker", "CB_CollectionToMesh")
+    #  'Socket_2' > 'Collection'
+    coll_to_mesh[params['Socket_2']] = coll.name  # set collection name
+    # coll_to_mesh[params['Socket_3']] = material
+    return coll_to_mesh
+
+def add_ao_mod(obj):
+    ao_mod = add_geonodes_mod(obj, "AO CBaker", "CB_AOPass")
+    # ADD bunch of parameters to for control
+    return ao_mod
+
+def add_depth_mod(obj):
+    depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
+    # ADD bunch of parameters to for control
+    return depth_mod
+
+def add_curvature_mod(obj):
+    curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
+    # ADD bunch of parameters to for control
+    return curvature_mod
+
+
+
 def get_raycast_distance(bj, pair):
     low_poly = bpy.data.objects[pair.lowpoly]
     objBBoxSize = 0.2*Vector(low_poly.dimensions[:]).length
@@ -367,8 +398,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 temp_cage.data = low_poly_obj_cp.data.copy()  # copy mesh data to not affect original
                 temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
                 temp_cage.name = f"TEMP_CAGE_{low_poly_obj_cp.name}"
-                gn_displce = add_geonodes_mod(temp_cage, "CAGE_GEONODES", "CycBaker_SplitExtrude")
-                gn_displce['Socket_2'] = get_raycast_distance(bj, pair)  # set extrusion distance                                                 ]
+                dist = get_raycast_distance(bj, pair)
+                displace_mod = add_split_extrude_mod(temp_cage, dist)
 
             temp_scn.collection.objects.link(temp_cage)
             with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
