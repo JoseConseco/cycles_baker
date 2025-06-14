@@ -79,23 +79,30 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                            ("DIFFUSE", "Diffuse Color", ""),
                                            ("AO", "Ambient Occlusion", ""),
                                            ("NORMAL", "Normal", ""),
-                                        #    ("HEIGHT", "Height", ""),
                                            ("OPACITY", "Opacity mask", ""),
+                                           ("DEPTH", "Depth", ""),
+                                           ("CURVATURE", "Curvature", ""),
                                         #    ("COMBINED", "Combined", ""),
                                       ))
 
+    # AO
     ao_distance: bpy.props.FloatProperty(name="Maximum Occluder Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
     samples: bpy.props.IntProperty(name="Samples", description="", default=32, min=8, max=512)
 
-    bake_all_highpoly: bpy.props.BoolProperty(name="Highpoly", default=False)
     environment_obj_vs_group: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
                                                      ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GROUP', '', 'Group', 'GROUP', 1)])
     environment_group: bpy.props.StringProperty(name="", description="Additional environment occluding object(or group)", default="")
 
-    bit_depth: bpy.props.EnumProperty(name="Color Depth", description="", default="0",
-                                      items=(("0", "8 bit(default)", ""),
-                                             ("1", "16 bit", "")
-                                             ))
+    # ray_distrib: bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
+    #                                     items=(("0", "Uniform", ""),
+    #                                            ("1", "Cosine", "")
+    #                                            ))
+
+    # NORMAL
+    # bit_depth: bpy.props.EnumProperty(name="Color Depth", description="", default="0",
+    #                                   items=(("0", "8 bit(default)", ""),
+    #                                          ("1", "16 bit", "")
+    #                                          ))
 
     nm_space: bpy.props.EnumProperty(name='Type',description="Normal map space", default="TANGENT",
                                      items=(("TANGENT", "Tangent Space", ""),
@@ -104,19 +111,13 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                       items=(("POS_Y", "OpenGL", "Blender Compatible"),
                                              ("NEG_Y", "DirectX", "")))
 
-    ray_distrib: bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
-                                        items=(("0", "Uniform", ""),
-                                               ("1", "Cosine", "")
-                                               ))
 
     def props(self):
         props = set()
         if self.pass_type == "AO":
-            props = {"ao_distance", "samples", "environment_group", "ray_distrib"}
+            props = {"ao_distance", "samples", "environment_group"}
         if self.pass_type == "NORMAL":
-            props = {"nm_space", "nm_invert", "bit_depth"}
-        if self.pass_type == "NORMAL":
-            props = {"nm_space", "nm_invert", "bit_depth"}
+            props = {"nm_space", "nm_invert"}
         # if self.pass_type == "HEIGHT":
         #     props = {'bit_depth'}
 
@@ -129,7 +130,9 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             "NORMAL": addon_prefs.NORMAL,
             "DIFFUSE": addon_prefs.DIFFUSE,
             "COMBINED": addon_prefs.COMBINED,
-            "OPACITY": addon_prefs.OPACITY
+            "OPACITY": addon_prefs.OPACITY,
+            "DEPTH": addon_prefs.DEPTH,
+            "CURVATURE": addon_prefs.CURVATURE,
         }
         return suffix_map.get(self.pass_type, "")
 

@@ -3,27 +3,26 @@ from numpy.lib.stride_tricks import as_strided
 import bpy
 import aud
 import math
-from bpy.props import *
 from mathutils import Vector
 from datetime import datetime
 
 import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
-from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod
+from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat
 
 
 def add_split_extrude_mod(obj, displace_val):
     gn_displce = add_geonodes_mod(obj, "Cage CBaker", "CycBaker_SplitExtrude")
     #  'Socket_2' > 'Offset'
-    gn_displace[params['Socket_2']] = displace_val  # set extrusion distance
+    gn_displce['Socket_2'] = displace_val  # set extrusion distance
     return gn_displce
 
-def add_collection_to_mesh_mod(obj, coll)
+def add_collection_to_mesh_mod(obj, coll):
     coll_to_mesh = add_geonodes_mod(obj, "Collection To Mesh CBaker", "CB_CollectionToMesh")
     #  'Socket_2' > 'Collection'
-    coll_to_mesh[params['Socket_2']] = coll.name  # set collection name
-    # coll_to_mesh[params['Socket_3']] = material
+    coll_to_mesh['Socket_2'] = coll  # set collection name
+    # coll_to_mesh['Socket_3'] = material
     return coll_to_mesh
 
 def add_ao_mod(obj):
@@ -41,6 +40,9 @@ def add_curvature_mod(obj):
     # ADD bunch of parameters to for control
     return curvature_mod
 
+def import_attrib_bake_mat():
+    bake_mat = import_mat("CBaker_AttribMaterial")
+    return bake_mat
 
 
 def get_raycast_distance(bj, pair):
@@ -57,6 +59,8 @@ BG_color = {
     "AO": np.array([1.0, 1.0, 1.0, 1.0]),
     "DIFFUSE": np.array([0.0, 0.0, 0.0, 0.0]),
     "OPACITY": np.array([0.0, 0.0, 0.0, 0.0]),
+    "DEPTH": np.array([0.0, 0.0, 0.0, 1.0]),
+    "CURVATURE": np.array([0.5, 0.5, 0.5, 1.0]),
 }
 
 shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -410,32 +414,50 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
                 for obj in hi_collection.objects:
-                    if obj.type in ('CURVE', 'CURVES', 'FONT'):
-                        hi_obj = self.obj_to_mesh(context, obj, out_hi_collection)
-                        hi_obj.matrix_world.translation += offset
-                    elif obj.type == 'EMPTY' and obj.instance_collection:
-                        root_empty = self.make_inst_real(context, obj, out_hi_collection)
-                        root_empty.matrix_world.translation += offset
-                    else:
-                        cp = obj.copy()
-                        cp.matrix_world.translation += offset
-                        cp['tmp'] = True  # mark as tmp, so it can be deleted later
-                        out_hi_collection.objects.link(cp)
+                    cp = obj.copy()
+                    cp['tmp'] = True  # mark as tmp, so it can be deleted later
+                    out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+                    cp.matrix_world.translation += offset  # move to offset position
+
+                    # old 'manual' way > handled by Real Instances in gn
+                    # if obj.type in ('CURVE', 'CURVES', 'FONT'):
+                    #     hi_obj = self.obj_to_mesh(context, obj, out_hi_collection)
+                    #     hi_obj.matrix_world.translation += offset
+                    # elif obj.type == 'EMPTY' and obj.instance_collection:
+                    #     root_empty = self.make_inst_real(context, obj, out_hi_collection)
+                    #     root_empty.matrix_world.translation += offset
+                    # else:
+                    #     cp = obj.copy()
+                    #     cp.matrix_world.translation += offset
+                    #     cp['tmp'] = True  # mark as tmp, so it can be deleted later
+                    #     out_hi_collection.objects.link(cp)
 
             else:  # pair.hp_type == "OBJ"
                 hi_poly_obj = bpy.data.objects[pair.highpoly]
-                if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
-                    root_empty = self.make_inst_real(context, hi_poly_obj, out_hi_collection)
-                    root_empty.matrix_world.translation += offset
-                elif hi_poly_obj.type in ('CURVE', 'CURVES', 'FONT'):
-                    hi_obj = self.obj_to_mesh(context, hi_poly_obj, out_hi_collection)
-                    hi_obj.matrix_world.translation += offset
-                else:
-                    cp = hi_poly_obj.copy()
-                    cp.matrix_world.translation += offset
-                    cp['tmp'] = True  # mark as tmp, so it can be deleted later
-                    out_hi_collection.objects.link(cp)
+                cp = hi_poly_obj.copy()
+                cp['tmp'] = True  # mark as tmp, so it can be deleted later
+                out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
+                cp.matrix_world.translation += offset  # move to offset position
 
+                # old 'manual' way > handled by Real Instances in gn
+                # if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
+                #     root_empty = self.make_inst_real(context, hi_poly_obj, out_hi_collection)
+                #     root_empty.matrix_world.translation += offset
+                # elif hi_poly_obj.type in ('CURVE', 'CURVES', 'FONT'):
+                #     hi_obj = self.obj_to_mesh(context, hi_poly_obj, out_hi_collection)
+                #     hi_obj.matrix_world.translation += offset
+                # else:
+                #     cp = hi_poly_obj.copy()
+                #     cp.matrix_world.translation += offset
+                #     cp['tmp'] = True  # mark as tmp, so it can be deleted later
+                #     out_hi_collection.objects.link(cp)
+
+        # create temp helper obj with no geometry, for geo nodes mod
+        tmp_mesh = bpy.data.meshes.new("Tmp_MD_TMP")
+        high_proxy = bpy.data.objects.new("HighProxy_MD_TMP", tmp_mesh)
+        high_proxy['tmp'] = True  # mark as tmp, so it can be deleted later
+        temp_scn.collection.objects.link(high_proxy)
+        add_collection_to_mesh_mod(high_proxy, out_hi_collection)
 
         lowpoly_objs[0].data = lowpoly_objs[0].data.copy()
         lowpoly_objs[0].name = "LOWPOLY_MD_TMP"
@@ -476,10 +498,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
         # print("selected  enviro group " + pair.lowpoly)
 
-        high_coll = bpy.data.collections['HIGHPOLY_MD_TMP']
-        for obj in high_coll.objects:
-            if obj.type == 'MESH':
-                select_obj(obj)
+        # high_coll = bpy.data.collections['HIGHPOLY_MD_TMP']
+        # for obj in high_coll.objects:
+        #     if obj.type == 'MESH':
+        #         select_obj(obj)
+        high_obj = tmp_scn.objects.get("HighProxy_MD_TMP")
+        select_obj(high_obj)
 
         lowpoly_obj = tmp_scn.objects["LOWPOLY_MD_TMP"]
         select_obj(lowpoly_obj)
@@ -490,7 +514,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         #     cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
         #     select_obj(cage_obj)
 
-    def bake_pair_pass(self, bake_job, bakepass):
+    def bake_pair_pass(self, context, bake_job, bakepass):
         self.create_bake_mat_and_node()
         startTime = datetime.now()  # time debug
         scn = bpy.data.scenes["MD_TEMP"]
@@ -502,12 +526,25 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
         pass_type = bakepass.pass_type
         pass_components = {'NONE'}
-        if pass_type == "DIFFUSE":
+        if bakepass.pass_type in ("DIFFUSE"):
+            pass_components = {'COLOR'}
+        elif bakepass.pass_type in ( "DEPTH" , "CURVATURE"):
+            high_obj = bpy.data.objects.get("HighProxy_MD_TMP")
+            if bakepass.pass_type == "CURVATURE":
+                add_curvature_mod(high_obj)
+            elif bakepass.pass_type == "DEPTH":
+                add_depth_mod(high_obj)
+            attrib_mat = import_attrib_bake_mat()
+            context.view_layer.material_override = attrib_mat
+            # print(f"Overriding material for {bakepass.pass_type} pass with {attrib_mat.name}")
+            # print(context.view_layer)
+            context.view_layer.update()
             pass_type = 'DIFFUSE'
             pass_components = {'COLOR'}
-        elif pass_type == "OPACITY":
+
+        elif bakepass.pass_type == "OPACITY":
             pass_type = 'EMIT'
-        elif pass_type == 'COMBINED':
+        elif bakepass.pass_type == 'COMBINED':
             pass_components = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
 
         aa = int(bake_job.antialiasing)
@@ -533,6 +570,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             use_split_materials=False, use_automatic_name=False)
 
         print("Baking set " + bakepass.pass_type + "  time: " + str(datetime.now() - startTime))
+        context.view_layer.material_override = None  # clear material override
 
     @staticmethod
     def remove_object(obj):
@@ -562,6 +600,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
         if bake_mat:
             bpy.data.materials.remove(bake_mat, do_unlink=True)
+
+        attrib_mat = bpy.data.materials.get("CBaker_AttribMaterial")
+        if attrib_mat:
+            bpy.data.materials.remove(attrib_mat, do_unlink=True)
 
         bpy.data.collections.remove(bpy.data.collections["HIGHPOLY_MD_TMP"], do_unlink=True)  # remove highpoly collection
         bpy.data.scenes.remove(scn_tmp)
@@ -683,7 +725,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
                 render_target.generated_color = bg
                 self.select_hi_low(bj)
-                self.bake_pair_pass(bj, bakepass)
+                self.bake_pair_pass(context, bj, bakepass)
 
                 if bakepass.pass_type != "OPACITY":  # opacity is not saved to image
                     pass
@@ -698,21 +740,23 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 render_target.scale(img_res, img_res)
                 imgPath = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
 
-                old_img = bpy.data.images.load(filepath=imgPath, check_existing=True)
-                if self.bake_pair_index > -1 and old_img and old_img.size[0]==old_img.size[1]==img_res: # mix with old bake if exists
-                    old_img.reload()
-                    old_pixels = np.array(old_img.pixels, dtype='f')
-                    new_pixels = np.array(render_target.pixels, dtype='f')
+                single_pair_bake = self.bake_pair_index > -1
+                if single_pair_bake and os.path.exists(imgPath): # for bake of single pair  was enabled:
+                    old_img = bpy.data.images.load(filepath=imgPath, check_existing=True)
+                    if old_img and old_img.size[0]==old_img.size[1]==img_res: # mix with old bake if exists
+                        old_img.reload()
+                        old_pixels = np.array(old_img.pixels, dtype='f')
+                        new_pixels = np.array(render_target.pixels, dtype='f')
 
-                    # reshape to (width*height, 4) - assign the result back to variables
-                    old_pixels = old_pixels.reshape(-1, 4)
-                    new_pixels = new_pixels.reshape(-1, 4)
+                        # reshape to (width*height, 4) - assign the result back to variables
+                        old_pixels = old_pixels.reshape(-1, 4)
+                        new_pixels = new_pixels.reshape(-1, 4)
 
-                    # get alpha channel from new pixels
-                    new_alpha = new_pixels[:, 3:4]  # keep as column vector for broadcasting
-                    blended_pixels = new_pixels * new_alpha + old_pixels * (1 - new_alpha)
+                        # get alpha channel from new pixels
+                        new_alpha = new_pixels[:, 3:4]  # keep as column vector for broadcasting
+                        blended_pixels = new_pixels * new_alpha + old_pixels * (1 - new_alpha)
 
-                    render_target.pixels = blended_pixels.ravel()  # set mixed pixels to render target
+                        render_target.pixels = blended_pixels.ravel()  # set mixed pixels to render target
 
                 render_target.filepath_raw = imgPath
                 render_target.save()

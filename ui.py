@@ -206,10 +206,10 @@ class CB_PT_SDPanel(bpy.types.Panel):
                             subrow.alignment = 'EXPAND'
                             subrow.prop(bakepass, 'nm_invert', text="Flip G")
 
-                        if "bit_depth" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'bit_depth', text="Bit Depth")
+                        # if "bit_depth" in bakepass.props():
+                        #     subrow = box.row(align=True)
+                        #     subrow.alignment = 'EXPAND'
+                        #     subrow.prop(bakepass, 'bit_depth', text="Bit Depth")
 
                         if "samples" in bakepass.props():
                             subrow = box.row(align=True)
@@ -273,13 +273,14 @@ def update_panel(self, context):
 
 
 
-class BlobFusionPreferences(bpy.types.AddonPreferences):
+class CyclesBakerPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
     DIFFUSE: bpy.props.StringProperty(name="Mat ID", description="", default='id')
     AO: bpy.props.StringProperty(name="AO", description="", default='ao')
     NORMAL: bpy.props.StringProperty(name="Normal", description="", default="nrm")
-    # HEIGHT: bpy.props.StringProperty(name="Height map", description="", default="heig")
+    DEPTH: bpy.props.StringProperty(name="Depth map", description="", default="depth")
+    CURVATURE: bpy.props.StringProperty(name="Curvature map", description="", default="curvature")
     OPACITY: bpy.props.StringProperty(name="Opacity map", description="", default="opacity")
     COMBINED: bpy.props.StringProperty(name="Combined map", description="", default="combined")
 
@@ -310,7 +311,8 @@ class BlobFusionPreferences(bpy.types.AddonPreferences):
             col.prop(self, "DIFFUSE")
             col.prop(self, "AO")
             col.prop(self, "NORMAL")
-            # col.prop(self, "HEIGHT")
+            col.prop(self, "DEPTH")
+            col.prop(self, "CURVATURE")
             # col.prop(self, "COMBINED")
             col.prop(self, "OPACITY")
 
@@ -373,7 +375,7 @@ class CB_OT_SDAddPassOp(bpy.types.Operator):
     job_index: bpy.props.IntProperty()
 
     def execute(self, context):
-        addonPref = bpy.context.preferences.addons['cycles_baker'].preferences
+        # addonPref = get_addon_preferences()
         newpass = context.scene.cycles_baker_settings.bake_job_queue[self.job_index].bake_pass_list.add()
         return {'FINISHED'}
 

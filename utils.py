@@ -111,18 +111,18 @@ def link_obj_to_same_collections(source_obj, clone, force_linking = True):
 
 
 data_types = ['node_groups']  # 'materials', 'textures' etc from gpro
+script_file = Path(__file__).resolve()
+filepath = script_file.parent / "baker_library.blend" # modern way
+LIB_FILE = str(filepath)
 
 def import_node_group(node_name, force_update=False):
     ''' import node gr. from hair_geo_nodes.blend '''
-    script_file = Path(__file__).resolve()
-    filepath = script_file.parent / "baker_library.blend" # modern way
-    lib_file = str(filepath)
     old_node_gr = bpy.data.node_groups.get(node_name)
 
     if not old_node_gr or force_update:
         # store name now before it gets overridden
         original_node_groups = {node_group.name: node_group for node_group in bpy.data.node_groups}
-        with bpy.data.libraries.load(lib_file) as (data_from, data_to):
+        with bpy.data.libraries.load(LIB_FILE) as (data_from, data_to):
             data_to.node_groups = [node_n for node_n in data_from.node_groups if node_n == node_name]
             imported_gr_names = [node_n for node_n in data_from.node_groups if node_n == node_name]  # stores names
             # all_lib_node_groups_names = data_from.node_groups[:] # part gets imported
@@ -130,7 +130,7 @@ def import_node_group(node_name, force_update=False):
         if data_to.node_groups:
             print(f"{imported_gr_names=}")
         else:
-            print(f"node group {node_name} not found in {lib_file}")
+            print(f"node group {node_name} not found in {LIB_FILE}")
             return None
 
 
@@ -148,6 +148,28 @@ def import_node_group(node_name, force_update=False):
         return data_to.node_groups[0]
     else:
         return old_node_gr
+
+
+
+def import_mat(mat_name, force_update=False):
+    old_mat = bpy.data.materials.get(mat_name)
+    if not old_mat or force_update:
+        with bpy.data.libraries.load(LIB_FILE) as (data_from, data_to):
+            data_to.materials = [mat for mat in data_from.materials if mat == mat_name]
+
+        if old_mat:
+            old_mat.user_remap(data_to.materials[0])
+            if old_mat.users == 0:
+                # due to https://projects.blender.org/blender/blender/issues/119139  in blender 4.1
+                # we have to remove data block that holds the name. Then use that name, on new data block...
+                bpy.data.materials.remove(old_mat)
+                data_to.materials[0].name = mat_name
+            else:
+                safe_rename(bpy.data.materials, data_to.materials[0], mat_name)
+
+        return data_to.materials[0]
+    else:
+        return old_mat
 
 
 def safe_rename(data_blocks, id_data_to_rename, new_name: str):
