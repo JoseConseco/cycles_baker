@@ -78,14 +78,27 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                       items=(
                                            ("DIFFUSE", "Diffuse Color", ""),
                                            ("AO", "Ambient Occlusion", ""),
+                                           ("AO_GN", "Ambient Occlusion (Geometry Nodes)", ""),
                                            ("NORMAL", "Normal", ""),
                                            ("OPACITY", "Opacity mask", ""),
-                                           ("DEPTH", "Depth", ""),
-                                           ("CURVATURE", "Curvature", ""),
+                                           ("DEPTH", "Depth (Geometry Nodes)", ""),
+                                           ("CURVATURE", "Curvature (Geometry Nodes)", ""),
                                         #    ("COMBINED", "Combined", ""),
                                       ))
 
-    # AO
+    # NORMAL  - baked from cycles
+    # bit_depth: bpy.props.EnumProperty(name="Color Depth", description="", default="0",
+    #                                   items=(("0", "8 bit(default)", ""),
+    #                                          ("1", "16 bit", "")
+    #                                          ))
+    nm_space: bpy.props.EnumProperty(name='Type',description="Normal map space", default="TANGENT",
+                                     items=(("TANGENT", "Tangent Space", ""),
+                                            ("OBJECT", "World Space", "")))
+    nm_invert: bpy.props.EnumProperty(name="Flip G", description="Invert green channel", default="POS_Y",
+                                      items=(("POS_Y", "OpenGL", "Blender Compatible"),
+                                             ("NEG_Y", "DirectX", "")))
+
+    # AO - cycles based
     ao_distance: bpy.props.FloatProperty(name="Maximum Occluder Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
     samples: bpy.props.IntProperty(name="Samples", description="", default=32, min=8, max=512)
 
@@ -98,35 +111,50 @@ class CyclesBakePass(bpy.types.PropertyGroup):
     #                                            ("1", "Cosine", "")
     #                                            ))
 
-    # NORMAL
-    # bit_depth: bpy.props.EnumProperty(name="Color Depth", description="", default="0",
-    #                                   items=(("0", "8 bit(default)", ""),
-    #                                          ("1", "16 bit", "")
-    #                                          ))
 
-    nm_space: bpy.props.EnumProperty(name='Type',description="Normal map space", default="TANGENT",
-                                     items=(("TANGENT", "Tangent Space", ""),
-                                            ("OBJECT", "World Space", "")))
-    nm_invert: bpy.props.EnumProperty(name="Flip G", description="Invert green channel", default="POS_Y",
-                                      items=(("POS_Y", "OpenGL", "Blender Compatible"),
-                                             ("NEG_Y", "DirectX", "")))
+    # AO_GN   - geo nodes base
+    gn_ao_samples: bpy.props.IntProperty(name="Samples", description="Increase AO ray samples (higher quality by slower)", default=8, min=1, max=200)
+    gn_ao_spread_angle: bpy.props.FloatProperty(name="Spread Angle", description="0 - spread: only shoot rays along surface normal", default=3.141599, min=0.0, max=3.141592, subtype='ANGLE')
+    gn_ao_max_ray_dist: bpy.props.FloatProperty(name="Max Ray Distance", description="Maximum raycast distance", default=1.0, min=0.1)
+    gn_ao_blur_steps: bpy.props.IntProperty(name="Blur Steps", description="Number of blur iterations", default=1, min=0, max=6)
+    gn_ao_flip_normals: bpy.props.BoolProperty(name="Flip Normals", description="Can be used for thickness map", default=False)
+    gn_ao_use_additional_mesh: bpy.props.BoolProperty(name="Use Additional Mesh", description="Use additional occluder object", default=False)
+    gn_ao_extra_object: bpy.props.PointerProperty(name="Extra Object", description="Adds extra occluder object", type=bpy.types.Object)
+
+
+    # DEPTH
+    depth_low_offset: bpy.props.FloatProperty(name="Low Offset", description="Black level offset (for valleys)", default=0.0, min=-10000.0, max=10000.0, subtype='DISTANCE')
+    depth_high_offset: bpy.props.FloatProperty(name="High Offset", description="White level offset (for hills)", default=0.0, min=-10000.0, max=10000.0, subtype='DISTANCE')
+
+
+
+    # CURVATURE
+    curvature_mode: bpy.props.EnumProperty(name="Mode", description="", default="SMOOTH",
+                                          items=(("SMOOTH", "Smooth", ""),
+                                                ("SHARP", "Sharp", "")))
+    curvature_contrast: bpy.props.FloatProperty(name="Contrast", description="", default=1.0, min=0.01, max=1.0, subtype='FACTOR')
+    curvature_blur: bpy.props.IntProperty(name="Blur", description="", default=3, min=0)
 
 
     def props(self):
-        props = set()
         if self.pass_type == "AO":
-            props = {"ao_distance", "samples", "environment_group"}
+            return {"ao_distance", "samples", "environment_group"}
+        if self.pass_type == "AO_GN":
+            return {"gn_ao_samples", "gn_ao_spread_angle", "gn_ao_max_ray_dist", "gn_ao_blur_steps",
+                    "gn_ao_flip_normals", "gn_ao_use_additional_mesh", "gn_ao_extra_object"}
         if self.pass_type == "NORMAL":
-            props = {"nm_space", "nm_invert"}
-        # if self.pass_type == "HEIGHT":
-        #     props = {'bit_depth'}
-
-        return props
+            return {"nm_space", "nm_invert"}
+        if self.pass_type == "DEPTH":
+            return {"depth_low_offset", "depth_high_offset"}
+        if self.pass_type == "CURVATURE":
+            return {"curvature_mode", "curvature_contrast", "curvature_blur"}
+        return set()
 
     def get_pass_suffix(self):
         addon_prefs = get_addon_preferences()
         suffix_map = {
             "AO": addon_prefs.AO,
+            "AO_GN": addon_prefs.AO,
             "NORMAL": addon_prefs.NORMAL,
             "DIFFUSE": addon_prefs.DIFFUSE,
             "COMBINED": addon_prefs.COMBINED,
