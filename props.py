@@ -114,6 +114,9 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
     # AO_GN   - geo nodes base
     gn_ao_samples: bpy.props.IntProperty(name="Samples", description="Increase AO ray samples (higher quality by slower)", default=8, min=1, max=200)
+    gn_ao_environment: bpy.props.EnumProperty(name="Environment", description="", default="Environment lightning mode",
+                                          items=(("UNIFORM", "Uniform", "Light comes uniformly in all directions"),
+                                                ("TOP_LIT", "Top Lit", "Light comes from above"),))
     gn_ao_spread_angle: bpy.props.FloatProperty(name="Spread Angle", description="0 - spread: only shoot rays along surface normal", default=3.141599, min=0.0, max=3.141592, subtype='ANGLE')
     gn_ao_max_ray_dist: bpy.props.FloatProperty(name="Max Ray Distance", description="Maximum raycast distance", default=1.0, min=0.1)
     gn_ao_blur_steps: bpy.props.IntProperty(name="Blur Steps", description="Number of blur iterations", default=1, min=0, max=6)
@@ -140,7 +143,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
         if self.pass_type == "AO":
             return {"ao_distance", "samples", "environment_group"}
         if self.pass_type == "AO_GN":
-            return {"gn_ao_samples", "gn_ao_spread_angle", "gn_ao_max_ray_dist", "gn_ao_blur_steps",
+            return {"gn_ao_samples", "gn_ao_environment", "gn_ao_spread_angle", "gn_ao_max_ray_dist", "gn_ao_blur_steps",
                     "gn_ao_flip_normals", "gn_ao_use_additional_mesh", "gn_ao_extra_object"}
         if self.pass_type == "NORMAL":
             return {"nm_space", "nm_invert"}

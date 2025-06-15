@@ -1,6 +1,26 @@
-import os
-from numpy.lib.stride_tricks import as_strided
+#  (c) 2025 Bartosz Styperek based on - by Piotr Adamowicz addon (from 2014 -MadMinstrel)
+
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+# ##### END GPL LICENSE BLOCK #####
+
+
 import bpy
+import os
 import aud
 import math
 from mathutils import Vector
@@ -11,6 +31,26 @@ import numpy as np
 from gpu_extras.batch import batch_for_shader
 from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat
 
+# CB_AOPass
+# Input_0 > {'name': 'Mesh', 'type': 'NodeSocketGeometry', 'description': ''}
+# Input_16 > {'name': 'Flip Normals', 'type': 'NodeSocketBool', 'default_value': False, 'description': 'Can be used for thickness map'}
+# Input_3 > {'name': 'Samples', 'type': 'NodeSocketInt', 'default_value': 8, 'min_value': 1, 'max_value': 200, 'subtype': 'NONE', 'description': 'Increase AO ray samples (higher quality by slower)'}
+# Input_4 > {'name': 'Spread Ange', 'type': 'NodeSocketFloat', 'default_value': 3.1415998935699463, 'min_value': 0.0, 'max_value': 3.1415927410125732, 'subtype': 'ANGLE', 'description': '0 - spread: only shoot rays along surface normal'}
+# Socket_1 > {'name': 'Environment', 'type': 'NodeSocketMenu', 'default_value': 'Uniform Environment', 'description': ''}
+# Input_8 > {'name': 'Blur Steps', 'type': 'NodeSocketInt', 'default_value': 1, 'min_value': 0, 'max_value': 6, 'subtype': 'NONE', 'description': ''}
+# Input_10 > {'name': 'Use Additional Mesh', 'type': 'NodeSocketBool', 'default_value': False, 'description': 'Use additional occluder object'}
+# Input_11 > {'name': 'Extra Object', 'type': 'NodeSocketObject', 'default_value': None, 'description': 'Adds extra occluder object'}
+# Socket_0 > {'name': 'Max Ray Dist', 'type': 'NodeSocketFloat', 'default_value': 1.0, 'min_value': 0.10000000149011612, 'max_value': 3.4028234663852886e+38, 'subtype': 'NONE', 'description': 'Maximum raycast distance'}
+# CB_DepthPass
+# Socket_0 > {'name': 'Geometry', 'type': 'NodeSocketGeometry', 'description': ''}
+# Socket_2 > {'name': 'Object (for Distance)', 'type': 'NodeSocketObject', 'default_value': None, 'description': 'Object for calculating distance from'}
+# Socket_3 > {'name': 'Low Offset', 'type': 'NodeSocketFloat', 'default_value': 0.0, 'min_value': -10000.0, 'max_value': 10000.0, 'subtype': 'DISTANCE', 'description': 'Black level offset (for valleys)'}
+# Socket_4 > {'name': 'High Offset', 'type': 'NodeSocketFloat', 'default_value': 0.0, 'min_value': -10000.0, 'max_value': 10000.0, 'subtype': 'DISTANCE', 'description': 'White level offset (for hils)'}
+# CB_CurvaturePass
+# Socket_0 > {'name': 'Geometry', 'type': 'NodeSocketGeometry', 'description': ''}
+# Socket_4 > {'name': 'Menu', 'type': 'NodeSocketMenu', 'default_value': 'Smooth', 'description': ''}
+# Socket_2 > {'name': 'Contrast', 'type': 'NodeSocketFloat', 'default_value': 1.0, 'min_value': 0.009999999776482582, 'max_value': 1.0, 'subtype': 'FACTOR', 'description': ''}
+# Socket_3 > {'name': 'Blur', 'type': 'NodeSocketInt', 'default_value': 3, 'min_value': 0, 'max_value': 2147483647, 'subtype': 'NONE', 'description': ''}
 
 def add_split_extrude_mod(obj, displace_val):
     gn_displce = add_geonodes_mod(obj, "Cage CBaker", "CycBaker_SplitExtrude")
@@ -30,11 +70,11 @@ def add_ao_mod(obj):
     # ADD bunch of parameters to for control
     # Input_16 > Flip Normals
     # Input_3 > Samples
+    # Socket_1 > Environment Mode
     # Input_4 > Spread Ange
     # Input_8 > Blur Steps
     # Input_10 > Use Additional Mesh
     # Input_11 > Extra Object
-    # Input_12 > Inflate External Object
     # Socket_0 > Max Ray Dist
     return ao_mod
 
