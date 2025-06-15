@@ -44,17 +44,14 @@ class CB_PT_SDPanel(bpy.types.Panel):
         row.separator()
 
         for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
-
             row = layout.row(align=True)
             row.alignment = 'EXPAND'
 
             if bj.expand is False:
                 row.prop(bj, "expand", icon="TRIA_RIGHT", icon_only=True, text=bj.name, emboss=False)
 
-                if bj.activated:
-                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
-                else:
-                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
+                icon = "RESTRICT_RENDER_OFF" if bj.activated else "RESTRICT_RENDER_ON"
+                row.prop(bj, "activated", icon_only=True, icon=icon, emboss=False)
 
                 oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
                 oper.bj_i = job_i
@@ -63,10 +60,8 @@ class CB_PT_SDPanel(bpy.types.Panel):
             else:
                 row.prop(bj, "expand", icon="TRIA_DOWN", icon_only=True, text=bj.name, emboss=False)
 
-                if bj.activated:
-                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
-                else:
-                    row.prop(bj, "activated", icon_only=True, icon="RESTRICT_RENDER_ON", emboss=False)
+                icon = "RESTRICT_RENDER_OFF" if bj.activated else "RESTRICT_RENDER_ON"
+                row.prop(bj, "activated", icon_only=True, icon=icon, emboss=False)
 
                 oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
                 oper.bj_i = job_i
@@ -168,15 +163,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     row.alignment = 'EXPAND'
                     box = row.box().column(align=True)
 
-                    # box = layout.box().column(align=True)
-                    subrow = box.row(align=True)
-                    subrow.alignment = 'EXPAND'
-                    # subrow.label(text=bj.get_out_dir_path())
-
-                    # rem = row.operator("cyclesbake.rem_pass", text = "", icon = "X")
-                    # rem.pass_index = pass_i
-                    # rem.job_index = job_i
-
                     subrow = box.row(align=True)
                     subrow.alignment = 'EXPAND'
                     subrow.prop(bakepass, 'pass_type')
@@ -206,24 +192,20 @@ class CB_PT_SDPanel(bpy.types.Panel):
                             subrow.alignment = 'EXPAND'
                             subrow.prop(bakepass, 'nm_invert', text="Flip G")
 
-                        # if "bit_depth" in bakepass.props():
-                        #     subrow = box.row(align=True)
-                        #     subrow.alignment = 'EXPAND'
-                        #     subrow.prop(bakepass, 'bit_depth', text="Bit Depth")
-
                         if "samples" in bakepass.props():
                             subrow = box.row(align=True)
                             subrow.alignment = 'EXPAND'
                             subrow.prop(bakepass, 'samples', text="Samples")
 
-                        if "environment_group" in bakepass.props():
+                        if "occluder_obj" in bakepass.props():
                             subrow = box.row(align=True)
                             subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'environment_obj_vs_group', expand=True)
-                            if bakepass.environment_obj_vs_group == 'OBJ':
-                                subrow.prop_search(bakepass, "environment_group", bpy.context.scene, "objects")
-                            else:
-                                subrow.prop_search(bakepass, "environment_group", bpy.data, "collections")
+                            subrow.prop_search(bakepass, "occluder_obj", bpy.context.scene, "objects")
+
+                        if "occluder_obj" in bakepass.props():
+                            subrow = box.row(align=True)
+                            subrow.alignment = 'EXPAND'
+                            subrow.prop_search(bakepass, "occluder_collection", bpy.data, "collections")
 
                     col = row.column()
                     row = col.row()

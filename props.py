@@ -102,9 +102,8 @@ class CyclesBakePass(bpy.types.PropertyGroup):
     ao_distance: bpy.props.FloatProperty(name="Maximum Occluder Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
     samples: bpy.props.IntProperty(name="Samples", description="", default=32, min=8, max=512)
 
-    environment_obj_vs_group: bpy.props.EnumProperty(name="Object vs Group", description="", default="OBJ", items=[
-                                                     ('OBJ', '', 'Object', 'MESH_CUBE', 0), ('GROUP', '', 'Group', 'GROUP', 1)])
-    environment_group: bpy.props.StringProperty(name="", description="Additional environment occluding object(or group)", default="")
+    occluder_obj: bpy.props.StringProperty(name="Occluder Object", description="Additional occluding object", default="")
+    occluder_collection: bpy.props.StringProperty(name="Occluder Collection", description="Additional occluding collection", default="")
 
     # ray_distrib: bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
     #                                     items=(("0", "Uniform", ""),
@@ -141,7 +140,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
     def props(self):
         if self.pass_type == "AO":
-            return {"ao_distance", "samples", "environment_group"}
+            return {"ao_distance", "samples", "occluder_obj", "occluder_collection"}
         if self.pass_type == "AO_GN":
             return {"gn_ao_samples", "gn_ao_environment", "gn_ao_spread_angle", "gn_ao_max_ray_dist", "gn_ao_blur_steps",
                     "gn_ao_flip_normals", "gn_ao_use_additional_mesh", "gn_ao_extra_object"}
