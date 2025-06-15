@@ -28,16 +28,31 @@ def add_collection_to_mesh_mod(obj, coll):
 def add_ao_mod(obj):
     ao_mod = add_geonodes_mod(obj, "AO CBaker", "CB_AOPass")
     # ADD bunch of parameters to for control
+    # Input_16 > Flip Normals
+    # Input_3 > Samples
+    # Input_4 > Spread Ange
+    # Input_8 > Blur Steps
+    # Input_10 > Use Additional Mesh
+    # Input_11 > Extra Object
+    # Input_12 > Inflate External Object
+    # Socket_0 > Max Ray Dist
     return ao_mod
 
-def add_depth_mod(obj):
+def add_depth_mod(obj, ref_obj):
     depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
     # ADD bunch of parameters to for control
+    # Socket_2 > Object (for Distance)
+    # Socket_3 > Low Offset
+    # Socket_4 > High Offset
+    depth_mod['Socket_2'] = ref_obj  # set object for distance
     return depth_mod
 
 def add_curvature_mod(obj):
     curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
     # ADD bunch of parameters to for control
+    # Socket_4 > Menu (Smooth, Sharp)
+    # Socket_2 > Contrast
+    # Socket_3 > Blur
     return curvature_mod
 
 def import_attrib_bake_mat():
@@ -518,6 +533,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         self.create_bake_mat_and_node()
         startTime = datetime.now()  # time debug
         scn = bpy.data.scenes["MD_TEMP"]
+        low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
+        high_obj = bpy.data.objects.get("HighProxy_MD_TMP")
         if bakepass.pass_type == "AO":
             scn.cycles.samples = bakepass.samples
             scn.world.light_settings.distance = bakepass.ao_distance
@@ -529,11 +546,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if bakepass.pass_type in ("DIFFUSE"):
             pass_components = {'COLOR'}
         elif bakepass.pass_type in ( "DEPTH" , "CURVATURE"):
-            high_obj = bpy.data.objects.get("HighProxy_MD_TMP")
             if bakepass.pass_type == "CURVATURE":
                 add_curvature_mod(high_obj)
             elif bakepass.pass_type == "DEPTH":
-                add_depth_mod(high_obj)
+                add_depth_mod(high_obj, low_obj)
             attrib_mat = import_attrib_bake_mat()
             context.view_layer.material_override = attrib_mat
             # print(f"Overriding material for {bakepass.pass_type} pass with {attrib_mat.name}")
