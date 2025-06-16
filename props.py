@@ -74,38 +74,38 @@ class CyclesBakePair(bpy.types.PropertyGroup):
 class CyclesBakePass(bpy.types.PropertyGroup):
     activated: bpy.props.BoolProperty(name="Activated", default=True)
 
-    pass_type: bpy.props.EnumProperty(name="Pass", default="NORMAL",
+    pass_type: bpy.props.EnumProperty(name="Pass",
                                       items=(
                                            ("DIFFUSE", "Diffuse Color", ""),
                                            ("AO", "Ambient Occlusion", ""),
-                                           ("AO_GN", "Ambient Occlusion (Geometry Nodes)", ""),
+                                           ("AO_GN", "Ambient Occlusion (GeoNodes)", ""),
                                            ("NORMAL", "Normal", ""),
                                            ("OPACITY", "Opacity mask", ""),
-                                           ("DEPTH", "Depth (Geometry Nodes)", ""),
-                                           ("CURVATURE", "Curvature (Geometry Nodes)", ""),
-                                        #    ("COMBINED", "Combined", ""),
-                                      ))
+                                           ("DEPTH", "Depth (GeoNodes)", ""),
+                                           ("CURVATURE", "Curvature (GeoNodes)", "")),
+                                      default="NORMAL",)
 
     # NORMAL  - baked from cycles
     # bit_depth: bpy.props.EnumProperty(name="Color Depth", description="", default="0",
     #                                   items=(("0", "8 bit(default)", ""),
     #                                          ("1", "16 bit", "")
     #                                          ))
-    nm_space: bpy.props.EnumProperty(name='Type',description="Normal map space", default="TANGENT",
+    nm_space: bpy.props.EnumProperty(name='Type',description="Normal map space",
                                      items=(("TANGENT", "Tangent Space", ""),
-                                            ("OBJECT", "World Space", "")))
-    nm_invert: bpy.props.EnumProperty(name="Flip G", description="Invert green channel", default="POS_Y",
+                                            ("OBJECT", "World Space", "")),
+                                     default="TANGENT",)
+    nm_invert: bpy.props.EnumProperty(name="Flip G", description="Invert green channel",
                                       items=(("POS_Y", "OpenGL", "Blender Compatible"),
-                                             ("NEG_Y", "DirectX", "")))
+                                             ("NEG_Y", "DirectX", "")),
+                                      default="POS_Y",)
 
     # AO - cycles based
     ao_distance: bpy.props.FloatProperty(name="Maximum Occluder Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
     samples: bpy.props.IntProperty(name="Samples", description="", default=32, min=8, max=512)
 
     occluder_obj: bpy.props.StringProperty(name="Occluder Object", description="Additional occluding object", default="")
-    occluder_collection: bpy.props.StringProperty(name="Occluder Collection", description="Additional occluding collection", default="")
 
-    # ray_distrib: bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
+    # ray_distribution: bpy.props.EnumProperty(name="Ray distribution", description="", default="1",
     #                                     items=(("0", "Uniform", ""),
     #                                            ("1", "Cosine", "")
     #                                            ))
@@ -113,9 +113,10 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
     # AO_GN   - geo nodes base
     gn_ao_samples: bpy.props.IntProperty(name="Samples", description="Increase AO ray samples (higher quality by slower)", default=8, min=1, max=200)
-    gn_ao_environment: bpy.props.EnumProperty(name="Environment", description="", default="Environment lightning mode",
-                                          items=(("UNIFORM", "Uniform", "Light comes uniformly in all directions"),
-                                                ("TOP_LIT", "Top Lit", "Light comes from above"),))
+    gn_ao_environment: bpy.props.EnumProperty(name="Environment", description="",
+                                              items=(("0", "Uniform", "Light comes uniformly in all directions"),
+                                                     ("1", "Top Lit", "Light comes from above")),
+                                              default="0")
     gn_ao_spread_angle: bpy.props.FloatProperty(name="Spread Angle", description="0 - spread: only shoot rays along surface normal", default=3.141599, min=0.0, max=3.141592, subtype='ANGLE')
     gn_ao_max_ray_dist: bpy.props.FloatProperty(name="Max Ray Distance", description="Maximum raycast distance", default=1.0, min=0.1)
     gn_ao_blur_steps: bpy.props.IntProperty(name="Blur Steps", description="Number of blur iterations", default=1, min=0, max=6)
@@ -125,32 +126,52 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
 
     # DEPTH
-    depth_low_offset: bpy.props.FloatProperty(name="Low Offset", description="Black level offset (for valleys)", default=0.0, min=-10000.0, max=10000.0, subtype='DISTANCE')
-    depth_high_offset: bpy.props.FloatProperty(name="High Offset", description="White level offset (for hills)", default=0.0, min=-10000.0, max=10000.0, subtype='DISTANCE')
+    depth_low_offset: bpy.props.FloatProperty(name="Low Offset", description="Black level offset (for valleys)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE')
+    depth_high_offset: bpy.props.FloatProperty(name="High Offset", description="White level offset (for hills)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE')
 
 
 
     # CURVATURE
-    curvature_mode: bpy.props.EnumProperty(name="Mode", description="", default="SMOOTH",
-                                          items=(("SMOOTH", "Smooth", ""),
-                                                ("SHARP", "Sharp", "")))
+    curvature_mode: bpy.props.EnumProperty(name="Mode", description="",
+                                           items=(("0", "Smooth", ""),
+                                                  ("1", "Sharp", "")),
+                                           default="0")
     curvature_contrast: bpy.props.FloatProperty(name="Contrast", description="", default=1.0, min=0.01, max=1.0, subtype='FACTOR')
-    curvature_blur: bpy.props.IntProperty(name="Blur", description="", default=3, min=0)
+    curvature_blur: bpy.props.IntProperty(name="Blur", description="", default=3, min=0, max=16)
 
 
     def props(self):
-        if self.pass_type == "AO":
-            return {"ao_distance", "samples", "occluder_obj", "occluder_collection"}
-        if self.pass_type == "AO_GN":
-            return {"gn_ao_samples", "gn_ao_environment", "gn_ao_spread_angle", "gn_ao_max_ray_dist", "gn_ao_blur_steps",
-                    "gn_ao_flip_normals", "gn_ao_use_additional_mesh", "gn_ao_extra_object"}
-        if self.pass_type == "NORMAL":
-            return {"nm_space", "nm_invert"}
-        if self.pass_type == "DEPTH":
-            return {"depth_low_offset", "depth_high_offset"}
-        if self.pass_type == "CURVATURE":
-            return {"curvature_mode", "curvature_contrast", "curvature_blur"}
-        return set()
+        prop_configs = {
+            "AO": {
+                "ao_distance": None,
+                "samples": None,
+                "occluder_obj": {"type": "prop_search", "search_data": "objects"},
+            },
+            "AO_GN": {
+                "gn_ao_samples": None,
+                "gn_ao_environment": None,
+                "gn_ao_spread_angle": None,
+                "gn_ao_max_ray_dist": None,
+                "gn_ao_blur_steps": None,
+                "gn_ao_flip_normals": {"type": "toggle"},
+                "gn_ao_use_additional_mesh": {"type": "toggle"},
+                "gn_ao_extra_object": None
+            },
+            "NORMAL": {
+                "nm_space": None,
+                "nm_invert": None
+            },
+            "DEPTH": {
+                "depth_low_offset": None,
+                "depth_high_offset": None
+            },
+            "CURVATURE": {
+                "curvature_mode": None,
+                "curvature_contrast": None,
+                "curvature_blur": None
+            }
+        }
+        return prop_configs.get(self.pass_type, {})
 
     def get_pass_suffix(self):
         addon_prefs = get_addon_preferences()

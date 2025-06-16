@@ -167,45 +167,16 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     subrow.alignment = 'EXPAND'
                     subrow.prop(bakepass, 'pass_type')
 
-                    if len(bakepass.props()) > 0:
+                    for prop_name, config in bakepass.props().items():
                         subrow = box.row(align=True)
                         subrow.alignment = 'EXPAND'
-                        subrow.separator()
 
-                        if "ray_distrib" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'ray_distrib', text="Ray distribution")
-
-                        if "ao_distance" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'ao_distance', text="Maximum Occluder Distance")
-
-                        if "nm_space" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'nm_space', text="Type")
-
-                        if "nm_invert" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'nm_invert', text="Flip G")
-
-                        if "samples" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop(bakepass, 'samples', text="Samples")
-
-                        if "occluder_obj" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop_search(bakepass, "occluder_obj", bpy.context.scene, "objects")
-
-                        if "occluder_obj" in bakepass.props():
-                            subrow = box.row(align=True)
-                            subrow.alignment = 'EXPAND'
-                            subrow.prop_search(bakepass, "occluder_collection", bpy.data, "collections")
+                        if config is None:
+                            subrow.prop(bakepass, prop_name)
+                        elif config["type"] == "prop_search":
+                            subrow.prop_search(bakepass, prop_name, bpy.data, config["search_data"])
+                        elif config["type"] == "toggle":
+                            subrow.prop(bakepass, prop_name, toggle=True)
 
                     col = row.column()
                     row = col.row()

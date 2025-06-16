@@ -32,7 +32,6 @@ from gpu_extras.batch import batch_for_shader
 from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat
 
 # CB_AOPass
-# Input_0 > {'name': 'Mesh', 'type': 'NodeSocketGeometry', 'description': ''}
 # Input_16 > {'name': 'Flip Normals', 'type': 'NodeSocketBool', 'default_value': False, 'description': 'Can be used for thickness map'}
 # Input_3 > {'name': 'Samples', 'type': 'NodeSocketInt', 'default_value': 8, 'min_value': 1, 'max_value': 200, 'subtype': 'NONE', 'description': 'Increase AO ray samples (higher quality by slower)'}
 # Input_4 > {'name': 'Spread Ange', 'type': 'NodeSocketFloat', 'default_value': 3.1415998935699463, 'min_value': 0.0, 'max_value': 3.1415927410125732, 'subtype': 'ANGLE', 'description': '0 - spread: only shoot rays along surface normal'}
@@ -42,12 +41,10 @@ from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, impor
 # Input_11 > {'name': 'Extra Object', 'type': 'NodeSocketObject', 'default_value': None, 'description': 'Adds extra occluder object'}
 # Socket_0 > {'name': 'Max Ray Dist', 'type': 'NodeSocketFloat', 'default_value': 1.0, 'min_value': 0.10000000149011612, 'max_value': 3.4028234663852886e+38, 'subtype': 'NONE', 'description': 'Maximum raycast distance'}
 # CB_DepthPass
-# Socket_0 > {'name': 'Geometry', 'type': 'NodeSocketGeometry', 'description': ''}
 # Socket_2 > {'name': 'Object (for Distance)', 'type': 'NodeSocketObject', 'default_value': None, 'description': 'Object for calculating distance from'}
 # Socket_3 > {'name': 'Low Offset', 'type': 'NodeSocketFloat', 'default_value': 0.0, 'min_value': -10000.0, 'max_value': 10000.0, 'subtype': 'DISTANCE', 'description': 'Black level offset (for valleys)'}
 # Socket_4 > {'name': 'High Offset', 'type': 'NodeSocketFloat', 'default_value': 0.0, 'min_value': -10000.0, 'max_value': 10000.0, 'subtype': 'DISTANCE', 'description': 'White level offset (for hils)'}
 # CB_CurvaturePass
-# Socket_0 > {'name': 'Geometry', 'type': 'NodeSocketGeometry', 'description': ''}
 # Socket_4 > {'name': 'Menu', 'type': 'NodeSocketMenu', 'default_value': 'Smooth', 'description': ''}
 # Socket_2 > {'name': 'Contrast', 'type': 'NodeSocketFloat', 'default_value': 1.0, 'min_value': 0.009999999776482582, 'max_value': 1.0, 'subtype': 'FACTOR', 'description': ''}
 # Socket_3 > {'name': 'Blur', 'type': 'NodeSocketInt', 'default_value': 3, 'min_value': 0, 'max_value': 2147483647, 'subtype': 'NONE', 'description': ''}
@@ -65,34 +62,31 @@ def add_collection_to_mesh_mod(obj, coll):
     # coll_to_mesh['Socket_3'] = material
     return coll_to_mesh
 
-def add_ao_mod(obj):
+def add_ao_mod(obj, pass_settings):
     ao_mod = add_geonodes_mod(obj, "AO CBaker", "CB_AOPass")
-    # ADD bunch of parameters to for control
-    # Input_16 > Flip Normals
-    # Input_3 > Samples
-    # Socket_1 > Environment Mode
-    # Input_4 > Spread Ange
-    # Input_8 > Blur Steps
-    # Input_10 > Use Additional Mesh
-    # Input_11 > Extra Object
-    # Socket_0 > Max Ray Dist
+    # Set AO modifier properties from pass settings
+    ao_mod['Input_16'] = pass_settings.gn_ao_flip_normals        # Flip Normals
+    ao_mod['Input_3'] = pass_settings.gn_ao_samples              # Samples
+    ao_mod['Input_4'] = pass_settings.gn_ao_spread_angle         # Spread Angle
+    ao_mod['Socket_1'] = int(pass_settings.gn_ao_environment)         # Environment Mode
+    ao_mod['Input_8'] = pass_settings.gn_ao_blur_steps          # Blur Steps
+    ao_mod['Input_10'] = pass_settings.gn_ao_use_additional_mesh # Use Additional Mesh
+    ao_mod['Input_11'] = pass_settings.gn_ao_extra_object       # Extra Object
+    ao_mod['Socket_0'] = pass_settings.gn_ao_max_ray_dist       # Max Ray Dist
     return ao_mod
 
-def add_depth_mod(obj, ref_obj):
+def add_depth_mod(obj, ref_obj, pass_settings):
     depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
-    # ADD bunch of parameters to for control
-    # Socket_2 > Object (for Distance)
-    # Socket_3 > Low Offset
-    # Socket_4 > High Offset
-    depth_mod['Socket_2'] = ref_obj  # set object for distance
+    depth_mod['Socket_2'] = ref_obj                          # Object for Distance
+    depth_mod['Socket_3'] = pass_settings.depth_low_offset   # Low Offset
+    depth_mod['Socket_4'] = pass_settings.depth_high_offset  # High Offset
     return depth_mod
 
-def add_curvature_mod(obj):
+def add_curvature_mod(obj, pass_settings):
     curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
-    # ADD bunch of parameters to for control
-    # Socket_4 > Menu (Smooth, Sharp)
-    # Socket_2 > Contrast
-    # Socket_3 > Blur
+    curvature_mod['Socket_4'] = int(pass_settings.curvature_mode)     # Menu (Smooth/Sharp)
+    curvature_mod['Socket_2'] = pass_settings.curvature_contrast # Contrast
+    curvature_mod['Socket_3'] = pass_settings.curvature_blur     # Blur
     return curvature_mod
 
 def import_attrib_bake_mat():
@@ -112,6 +106,7 @@ CURVATURE_NODES = "CB_CurvaturePass"
 BG_color = {
     "NORMAL": np.array([0.5, 0.5, 1.0, 1.0]),
     "AO": np.array([1.0, 1.0, 1.0, 1.0]),
+    "AO_GN": np.array([1.0, 1.0, 1.0, 1.0]),
     "DIFFUSE": np.array([0.0, 0.0, 0.0, 0.0]),
     "OPACITY": np.array([0.0, 0.0, 0.0, 0.0]),
     "DEPTH": np.array([0.0, 0.0, 0.0, 1.0]),
@@ -585,11 +580,13 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         pass_components = {'NONE'}
         if bakepass.pass_type in ("DIFFUSE"):
             pass_components = {'COLOR'}
-        elif bakepass.pass_type in ( "DEPTH" , "CURVATURE"):
+        elif bakepass.pass_type in ("AO_GN", "DEPTH" , "CURVATURE"):
             if bakepass.pass_type == "CURVATURE":
-                add_curvature_mod(high_obj)
+                add_curvature_mod(high_obj, bakepass)
             elif bakepass.pass_type == "DEPTH":
-                add_depth_mod(high_obj, low_obj)
+                add_depth_mod(high_obj, low_obj, bakepass)
+            elif bakepass.pass_type == "AO_GN":
+                add_ao_mod(high_obj, bakepass)
             attrib_mat = import_attrib_bake_mat()
             context.view_layer.material_override = attrib_mat
             # print(f"Overriding material for {bakepass.pass_type} pass with {attrib_mat.name}")
@@ -626,6 +623,16 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             use_split_materials=False, use_automatic_name=False)
 
         print("Baking set " + bakepass.pass_type + "  time: " + str(datetime.now() - startTime))
+        ao_ng = bpy.data.node_groups.get("CB_AOPass")
+        deptH_ng = bpy.data.node_groups.get("CB_DepthPass")
+        curvature_ng = bpy.data.node_groups.get("CB_CurvaturePass")
+        if ao_ng:
+            bpy.data.node_groups.remove(ao_ng)
+        if deptH_ng:
+            bpy.data.node_groups.remove(deptH_ng)
+        if curvature_ng:
+            bpy.data.node_groups.remove(curvature_ng)
+
         context.view_layer.material_override = None  # clear material override
 
     @staticmethod
