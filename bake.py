@@ -623,15 +623,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             use_split_materials=False, use_automatic_name=False)
 
         print("Baking set " + bakepass.pass_type + "  time: " + str(datetime.now() - startTime))
-        ao_ng = bpy.data.node_groups.get("CB_AOPass")
-        deptH_ng = bpy.data.node_groups.get("CB_DepthPass")
-        curvature_ng = bpy.data.node_groups.get("CB_CurvaturePass")
-        if ao_ng:
-            bpy.data.node_groups.remove(ao_ng)
-        if deptH_ng:
-            bpy.data.node_groups.remove(deptH_ng)
-        if curvature_ng:
-            bpy.data.node_groups.remove(curvature_ng)
 
         context.view_layer.material_override = None  # clear material override
 
@@ -659,6 +650,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             if imgnode:
                 bake_mat.node_tree.nodes.remove(imgnode)  # remove bake image node
             self.remove_object(low_obj)  # remove lowpoly object
+
+        node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_CurvaturePass", "CycBaker_SplitExtrude" ]
+        for node_group_name in node_groups_to_remove:
+            node_group = bpy.data.node_groups.get(node_group_name)
+            if node_group:
+                bpy.data.node_groups.remove(node_group)
 
         bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
         if bake_mat:
