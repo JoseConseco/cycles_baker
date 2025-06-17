@@ -62,8 +62,10 @@ def add_collection_to_mesh_mod(obj, coll):
     # coll_to_mesh['Socket_3'] = material
     return coll_to_mesh
 
-def add_ao_mod(obj, pass_settings):
-    ao_mod = add_geonodes_mod(obj, "AO CBaker", "CB_AOPass")
+def set_ao_mod(obj, pass_settings):
+    ao_mod = obj.modifiers.get("AO CBaker")
+    if not ao_mod:
+        ao_mod = add_geonodes_mod(obj, "AO CBaker", "CB_AOPass")
     # Set AO modifier properties from pass settings
     ao_mod['Input_16'] = pass_settings.gn_ao_flip_normals        # Flip Normals
     ao_mod['Input_3'] = pass_settings.gn_ao_samples              # Samples
@@ -75,15 +77,19 @@ def add_ao_mod(obj, pass_settings):
     ao_mod['Socket_0'] = pass_settings.gn_ao_max_ray_dist       # Max Ray Dist
     return ao_mod
 
-def add_depth_mod(obj, ref_obj, pass_settings):
-    depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
+def set_depth_mod(obj, ref_obj, pass_settings):
+    depth_mod = obj.modifiers.get("Depth CBaker")
+    if not depth_mod:
+        depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
     depth_mod['Socket_2'] = ref_obj                          # Object for Distance
     depth_mod['Socket_3'] = pass_settings.depth_low_offset   # Low Offset
     depth_mod['Socket_4'] = pass_settings.depth_high_offset  # High Offset
     return depth_mod
 
-def add_curvature_mod(obj, pass_settings):
-    curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
+def set_curvature_mod(obj, pass_settings):
+    curvature_mod = obj.modifiers.get("Curvature CBaker")
+    if not curvature_mod:
+        curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
     curvature_mod['Socket_4'] = int(pass_settings.curvature_mode)     # Menu (Smooth/Sharp)
     curvature_mod['Socket_2'] = pass_settings.curvature_contrast # Contrast
     curvature_mod['Socket_3'] = pass_settings.curvature_blur     # Blur
@@ -582,11 +588,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             pass_components = {'COLOR'}
         elif bakepass.pass_type in ("AO_GN", "DEPTH" , "CURVATURE"):
             if bakepass.pass_type == "CURVATURE":
-                add_curvature_mod(high_obj, bakepass)
+                set_curvature_mod(high_obj, bakepass)
             elif bakepass.pass_type == "DEPTH":
-                add_depth_mod(high_obj, low_obj, bakepass)
+                set_depth_mod(high_obj, low_obj, bakepass)
             elif bakepass.pass_type == "AO_GN":
-                add_ao_mod(high_obj, bakepass)
+                set_ao_mod(high_obj, bakepass)
             attrib_mat = import_attrib_bake_mat()
             context.view_layer.material_override = attrib_mat
             # print(f"Overriding material for {bakepass.pass_type} pass with {attrib_mat.name}")
@@ -859,3 +865,109 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
 
 
+class CB_OT_PreviewPassOps(bpy.types.Operator):
+    bl_idname = "cycles.preview_pass"
+    bl_label = "Preview Pass"
+    bl_description = "Preview selected pass type on highpoly objects"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    pass_type: bpy.props.EnumProperty(name="Pass Type",
+                                      items=[
+                                          ('CURVATURE', "Curvature", "Preview Curvature Pass"),
+                                          ('DEPTH', "Depth", "Preview Depth Pass"),
+                                          ('AO_GN', "AO (Geometry Nodes)", "Preview AO Pass with Geometry Nodes"),
+                                      ],
+                                      default='CURVATURE',
+                                      description="Type of pass to preview")
+
+    def execute(self, context):
+        cycles_bake_settings = context.scene.cycles_baker_settings
+        active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
+
+        # Create temp scene
+        temp_scn = bpy.data.scenes.new("MD_PREVIEW")
+        context.window.scene = temp_scn
+        temp_scn.render.engine = "CYCLES"
+        temp_scn.cycles.device = 'GPU' if context.preferences.addons['cycles'].preferences.compute_device_type == 'CUDA' else 'CPU'
+        temp_scn.world = context.scene.world
+
+        # Create collection for highpoly objects
+        out_hi_collection = bpy.data.collections.new('HIGHPOLY_PREVIEW')
+        temp_scn.collection.children.link(out_hi_collection)
+
+        # Copy highpoly objects from all active bake pairs
+        for bj in active_bj:
+            active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]
+            for pair in active_pairs:
+                if pair.hp_type == "GROUP":
+                    hi_collection = bpy.data.collections.get(pair.highpoly)
+                    for obj in hi_collection.objects:
+                        cp = obj.copy()
+                        cp['tmp'] = True
+                        out_hi_collection.objects.link(cp)
+                else:  # pair.hp_type == "OBJ"
+                    hi_poly_obj = bpy.data.objects[pair.highpoly]
+                    cp = hi_poly_obj.copy()
+                    cp['tmp'] = True
+                    out_hi_collection.objects.link(cp)
+
+        # Create proxy object with geometry nodes
+        tmp_mesh = bpy.data.meshes.get("Tmp_Preview")
+        if not tmp_mesh:
+            tmp_mesh = bpy.data.meshes.new("Tmp_Preview")
+        high_proxy = bpy.data.objects.new("HighProxy_Preview", tmp_mesh)
+        high_proxy['tmp'] = True
+        temp_scn.collection.objects.link(high_proxy)
+
+        # Add collection to mesh modifier
+        add_collection_to_mesh_mod(high_proxy, out_hi_collection)
+
+        out_hi_collection.hide_viewport = True
+
+        # Add pass-specific modifier and material override
+        attrib_mat = import_attrib_bake_mat()
+        context.view_layer.material_override = attrib_mat
+
+        # Add specific pass modifier based on pass_type
+        if self.pass_type == "CURVATURE":
+            set_curvature_mod(high_proxy, active_bj[0].bake_pass_list[0])
+        elif self.pass_type == "DEPTH":
+            set_depth_mod(high_proxy, None, active_bj[0].bake_pass_list[0])
+        elif self.pass_type == "AO_GN":
+            set_ao_mod(high_proxy, active_bj[0].bake_pass_list[0])
+
+        return {'FINISHED'}
+
+class CB_OT_ClosePreviewOps(bpy.types.Operator):
+    bl_idname = "cycles.close_preview"
+    bl_label = "Close Preview"
+    bl_description = "Close preview scene and return to original scene"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        preview_scene = bpy.data.scenes.get("MD_PREVIEW")
+        if preview_scene:
+            # Clear material override
+            context.view_layer.material_override = None
+
+            # Remove temporary objects
+            for obj in preview_scene.objects:
+                bpy.data.objects.remove(obj)
+
+            # Remove collections
+            preview_collection = bpy.data.collections.get("HIGHPOLY_PREVIEW")
+            if preview_collection:
+                bpy.data.collections.remove(preview_collection, do_unlink=True)
+
+            # Remove materials
+            attrib_mat = bpy.data.materials.get("CBaker_AttribMaterial")
+            if attrib_mat:
+                bpy.data.materials.remove(attrib_mat, do_unlink=True)
+
+            # Remove preview scene
+            original_scene = bpy.data.scenes.get("Scene")
+            if original_scene:
+                context.window.scene = original_scene
+            bpy.data.scenes.remove(preview_scene)
+
+        return {'FINISHED'}

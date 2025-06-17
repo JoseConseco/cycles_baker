@@ -185,10 +185,14 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     rem.job_index = job_i
 
                     row = col.row()
-                    if bakepass.activated:
-                        row.prop(bakepass, "activated", icon_only=True, icon="RESTRICT_RENDER_OFF", emboss=False)
-                    else:
-                        row.prop(bakepass, "activated", icon_only=True, icon="RESTRICT_RENDER_ON", emboss=False)
+                    icon = "RESTRICT_RENDER_OFF" if bakepass.activated else "RESTRICT_RENDER_ON"
+                    row.prop(bakepass, "activated", icon_only=True, icon=icon, emboss=False)
+
+                    # row for Preview button - with eye icon
+                    if bakepass.pass_type in ( "AO_GN", "DEPTH", "CURVATURE"):
+                        row = col.row(align=True)
+                        row.alignment = 'EXPAND'
+                        row.operator("cycles.preview_pass", text="", icon="HIDE_OFF").pass_type = bakepass.pass_type
 
                 row = layout.row(align=True)
                 row.alignment = 'EXPAND'

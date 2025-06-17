@@ -22,7 +22,7 @@
 import bpy
 from pathlib import Path
 from .utils import get_addon_preferences
-from .bake import draw_cage_callback
+from .bake import draw_cage_callback, set_ao_mod, set_depth_mod, set_curvature_mod
 
 
 handleDrawRayDistance = []
@@ -69,6 +69,30 @@ class CyclesBakePair(bpy.types.PropertyGroup):
     no_materials: bpy.props.BoolProperty(name="No Materials", default=False)
 
 
+AO_PARAM_MAP = {
+    "gn_ao_flip_normals": "Input_16",
+    "gn_ao_samples": "Input_3",
+    "gn_ao_spread_angle": "Input_4",
+    "gn_ao_environment": "Socket_1",
+    "gn_ao_blur_steps": "Input_8",
+    "gn_ao_use_additional_mesh": "Input_10",
+    "gn_ao_extra_object": "Input_11",
+    "gn_ao_max_ray_dist": "Socket_0"
+}
+
+# Mapping for Depth pass parameters
+DEPTH_PARAM_MAP = {
+    "depth_reference_object": "Socket_2",
+    "depth_low_offset": "Socket_3",
+    "depth_high_offset": "Socket_4"
+}
+
+# Mapping for Curvature pass parameters
+CURVATURE_PARAM_MAP = {
+    "curvature_mode": "Socket_4",
+    "curvature_contrast": "Socket_2",
+    "curvature_blur": "Socket_3"
+}
 
 
 class CyclesBakePass(bpy.types.PropertyGroup):
@@ -98,6 +122,28 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                       items=(("POS_Y", "OpenGL", "Blender Compatible"),
                                              ("NEG_Y", "DirectX", "")),
                                       default="POS_Y",)
+
+    def update_gn_modifier(self, context):
+        if context.scene.name == "MD_PREVIEW":
+            proxy_obj = bpy.data.objects.get("HighProxy_Preview")
+
+            # Curvature modifier update
+            modifier = proxy_obj.modifiers.get("Curvature CBaker")
+            if modifier:
+                set_ao_mod(proxy_obj, self)
+                return
+
+            # Depth modifier update
+            modifier = proxy_obj.modifiers.get("Depth CBaker")
+            if modifier:
+                set_depth_mod(proxy_obj, self)
+                return
+
+            # AO modifier update
+            modifier = proxy_obj.modifiers.get("AO CBaker")
+            if modifier:
+                set_ao_mod(proxy_obj, self)
+                return
 
     # AO - cycles based
     ao_distance: bpy.props.FloatProperty(name="Maximum Occluder Distance", description="Maximum Occluder Distance", default=0.1, min=0.0, max=1.0)
