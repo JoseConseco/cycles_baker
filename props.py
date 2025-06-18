@@ -22,7 +22,7 @@
 import bpy
 from pathlib import Path
 from .utils import get_addon_preferences
-from .bake import draw_cage_callback, set_ao_mod, set_depth_mod, set_curvature_mod
+from .bake import draw_cage_callback, set_ao_mod, set_depth_mod, get_ao_mod, set_curvature_mod, get_depth_mod, get_curvature_mod
 
 
 handleDrawRayDistance = []
@@ -128,21 +128,21 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             proxy_obj = bpy.data.objects.get("HighProxy_Preview")
 
             # Curvature modifier update
-            modifier = proxy_obj.modifiers.get("Curvature CBaker")
-            if modifier:
+            ao_mod = get_ao_mod(proxy_obj)
+            if ao_mod:
                 set_ao_mod(proxy_obj, self)
                 return
 
             # Depth modifier update
-            modifier = proxy_obj.modifiers.get("Depth CBaker")
-            if modifier:
+            depth_mod = get_depth_mod(proxy_obj)
+            if depth_mod:
                 set_depth_mod(proxy_obj, self)
                 return
 
             # AO modifier update
-            modifier = proxy_obj.modifiers.get("AO CBaker")
-            if modifier:
-                set_ao_mod(proxy_obj, self)
+            curvature_mod = get_curvature_mod(proxy_obj)
+            if curvature_mod:
+                set_curvature_mod(proxy_obj, self)
                 return
 
     # AO - cycles based
@@ -158,32 +158,31 @@ class CyclesBakePass(bpy.types.PropertyGroup):
 
 
     # AO_GN   - geo nodes base
-    gn_ao_samples: bpy.props.IntProperty(name="Samples", description="Increase AO ray samples (higher quality by slower)", default=8, min=1, max=200)
+    gn_ao_samples: bpy.props.IntProperty(name="Samples", description="Increase AO ray samples (higher quality by slower)", default=8, min=1, max=200, update=update_gn_modifier)
     gn_ao_environment: bpy.props.EnumProperty(name="Environment", description="",
                                               items=(("0", "Uniform", "Light comes uniformly in all directions"),
                                                      ("1", "Top Lit", "Light comes from above")),
-                                              default="0")
-    gn_ao_spread_angle: bpy.props.FloatProperty(name="Spread Angle", description="0 - spread: only shoot rays along surface normal", default=3.141599, min=0.0, max=3.141592, subtype='ANGLE')
-    gn_ao_max_ray_dist: bpy.props.FloatProperty(name="Max Ray Distance", description="Maximum raycast distance", default=1.0, min=0.1)
-    gn_ao_blur_steps: bpy.props.IntProperty(name="Blur Steps", description="Number of blur iterations", default=1, min=0, max=6)
-    gn_ao_flip_normals: bpy.props.BoolProperty(name="Flip Normals", description="Can be used for thickness map", default=False)
-    gn_ao_use_additional_mesh: bpy.props.BoolProperty(name="Use Additional Mesh", description="Use additional occluder object", default=False)
-    gn_ao_extra_object: bpy.props.PointerProperty(name="Extra Object", description="Adds extra occluder object", type=bpy.types.Object)
+                                              default="0", update=update_gn_modifier)
+    gn_ao_spread_angle: bpy.props.FloatProperty(name="Spread Angle", description="0 - spread: only shoot rays along surface normal", default=3.141599, min=0.0, max=3.141592, subtype='ANGLE', update=update_gn_modifier)
+    gn_ao_max_ray_dist: bpy.props.FloatProperty(name="Max Ray Distance", description="Maximum raycast distance", default=1.0, min=0.1, update=update_gn_modifier)
+    gn_ao_blur_steps: bpy.props.IntProperty(name="Blur Steps", description="Number of blur iterations", default=1, min=0, max=6, update=update_gn_modifier)
+    gn_ao_flip_normals: bpy.props.BoolProperty(name="Flip Normals", description="Can be used for thickness map", default=False, update=update_gn_modifier)
+    gn_ao_use_additional_mesh: bpy.props.BoolProperty(name="Use Additional Mesh", description="Use additional occluder object", default=False, update=update_gn_modifier)
+    gn_ao_extra_object: bpy.props.PointerProperty(name="Extra Object", description="Adds extra occluder object", type=bpy.types.Object, update=update_gn_modifier)
 
 
     # DEPTH
-    depth_low_offset: bpy.props.FloatProperty(name="Low Offset", description="Black level offset (for valleys)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE')
-    depth_high_offset: bpy.props.FloatProperty(name="High Offset", description="White level offset (for hills)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE')
-
+    depth_low_offset: bpy.props.FloatProperty(name="Low Offset", description="Black level offset (for valleys)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE', update=update_gn_modifier)
+    depth_high_offset: bpy.props.FloatProperty(name="High Offset", description="White level offset (for hills)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE', update=update_gn_modifier)
 
 
     # CURVATURE
     curvature_mode: bpy.props.EnumProperty(name="Mode", description="",
                                            items=(("0", "Smooth", ""),
                                                   ("1", "Sharp", "")),
-                                           default="0")
-    curvature_contrast: bpy.props.FloatProperty(name="Contrast", description="", default=1.0, min=0.01, max=1.0, subtype='FACTOR')
-    curvature_blur: bpy.props.IntProperty(name="Blur", description="", default=3, min=0, max=16)
+                                           default="0", update=update_gn_modifier)
+    curvature_contrast: bpy.props.FloatProperty(name="Contrast", description="", default=1.0, min=0.01, soft_max=0.1, subtype='FACTOR', update=update_gn_modifier)
+    curvature_blur: bpy.props.IntProperty(name="Blur", description="", default=3, min=0, soft_max=16, update=update_gn_modifier)
 
 
     def props(self):

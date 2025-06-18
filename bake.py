@@ -30,6 +30,7 @@ import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
 from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat
+from . import ui as globa_ui
 
 # CB_AOPass
 # Input_16 > {'name': 'Flip Normals', 'type': 'NodeSocketBool', 'default_value': False, 'description': 'Can be used for thickness map'}
@@ -62,8 +63,17 @@ def add_collection_to_mesh_mod(obj, coll):
     # coll_to_mesh['Socket_3'] = material
     return coll_to_mesh
 
+def get_ao_mod(obj):
+    return obj.modifiers.get("AO CBaker")
+
+def get_depth_mod(obj):
+    return obj.modifiers.get("Depth CBaker")
+
+def get_curvature_mod(obj):
+    return obj.modifiers.get("Curvature CBaker")
+
 def set_ao_mod(obj, pass_settings):
-    ao_mod = obj.modifiers.get("AO CBaker")
+    ao_mod = get_ao_mod(obj)
     if not ao_mod:
         ao_mod = add_geonodes_mod(obj, "AO CBaker", "CB_AOPass")
     # Set AO modifier properties from pass settings
@@ -75,24 +85,33 @@ def set_ao_mod(obj, pass_settings):
     ao_mod['Input_10'] = pass_settings.gn_ao_use_additional_mesh # Use Additional Mesh
     ao_mod['Input_11'] = pass_settings.gn_ao_extra_object       # Extra Object
     ao_mod['Socket_0'] = pass_settings.gn_ao_max_ray_dist       # Max Ray Dist
+    obj.modifiers.update()  # Update modifier to apply changes
+    obj.update_tag()
+    # obj.data.update()
+    # context.scene.update_tag()
+    # context.view_layer.update()
     return ao_mod
 
 def set_depth_mod(obj, ref_obj, pass_settings):
-    depth_mod = obj.modifiers.get("Depth CBaker")
+    depth_mod = get_depth_mod(obj)
     if not depth_mod:
         depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
     depth_mod['Socket_2'] = ref_obj                          # Object for Distance
     depth_mod['Socket_3'] = pass_settings.depth_low_offset   # Low Offset
     depth_mod['Socket_4'] = pass_settings.depth_high_offset  # High Offset
+    obj.modifiers.update()  # Update modifier to apply changes
+    obj.update_tag()
     return depth_mod
 
 def set_curvature_mod(obj, pass_settings):
-    curvature_mod = obj.modifiers.get("Curvature CBaker")
+    curvature_mod = get_curvature_mod(obj)
     if not curvature_mod:
         curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
     curvature_mod['Socket_4'] = int(pass_settings.curvature_mode)     # Menu (Smooth/Sharp)
     curvature_mod['Socket_2'] = pass_settings.curvature_contrast # Contrast
     curvature_mod['Socket_3'] = pass_settings.curvature_blur     # Blur
+    obj.modifiers.update()  # Update modifier to apply changes
+    obj.update_tag()
     return curvature_mod
 
 def import_attrib_bake_mat():
@@ -334,6 +353,14 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     bake_pair_index: bpy.props.IntProperty(name="Bake Pair Index", default=-1, description="Index of the bake pair to process")
+
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.bake_pair_index > -1:
+            return "Bake ONLY selected pair: of highpoly-lowpoly objects"
+        else:
+            return "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
 
     @staticmethod
     def get_set_first_material_slot(obj):
@@ -864,6 +891,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         # handle.stop()
 
 
+OLD_SHADING = None
+OLD_RENDER_PASS = None
 
 class CB_OT_PreviewPassOps(bpy.types.Operator):
     bl_idname = "cycles.preview_pass"
@@ -879,6 +908,9 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
                                       ],
                                       default='CURVATURE',
                                       description="Type of pass to preview")
+    job_index: bpy.props.IntProperty(name="Bake Job Index", default=-1, description="Index of the bake job to preview")
+    pass_index: bpy.props.IntProperty(name="Bake Pass Index", default=-1, description="Index of the bake pass to preview")
+    orig_scene_name: bpy.props.StringProperty(name="Original Scene Name", default="", description="Name of the original scene before preview")
 
     def execute(self, context):
         cycles_bake_settings = context.scene.cycles_baker_settings
@@ -936,6 +968,23 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         elif self.pass_type == "AO_GN":
             set_ao_mod(high_proxy, active_bj[0].bake_pass_list[0])
 
+        # set areas[2].spaces[0].shading.type to Rendred, and preview only Color from diffuse pass
+
+        global OLD_SHADING, OLD_RENDER_PASS
+        OLD_SHADING = context.space_data.shading.type
+        context.space_data.shading.type = 'RENDERED'
+        OLD_RENDER_PASS = context.space_data.shading.render_pass
+        context.space_data.shading.cycles.render_pass = 'DIFFUSE_COLOR'
+
+        # global PREVIEW_BJ_IDX, PREVIEW_PASS_IDX
+        globa_ui.PREVIEW_BJ_IDX = self.job_index
+        globa_ui.PREVIEW_PASS_IDX = self.pass_index
+        globa_ui.SCENE_NAME = self.orig_scene_name
+
+        temp_scn.view_settings.view_transform = 'Standard'  # set view transform to Standard
+        temp_scn.cycles.preview_samples = 1
+        temp_scn.cycles.use_adaptive_sampling = False
+
         return {'FINISHED'}
 
 class CB_OT_ClosePreviewOps(bpy.types.Operator):
@@ -970,4 +1019,9 @@ class CB_OT_ClosePreviewOps(bpy.types.Operator):
                 context.window.scene = original_scene
             bpy.data.scenes.remove(preview_scene)
 
+        context.space_data.shading.type = OLD_SHADING if OLD_SHADING else 'MATERIAL'
+        context.space_data.shading.cycles.render_pass = OLD_RENDER_PASS if OLD_RENDER_PASS else 'DIFFUSE_COLOR'
+
+        globa_ui.PREVIEW_BJ_IDX = None
+        globa_ui.PREVIEW_PASS_IDX = None
         return {'FINISHED'}

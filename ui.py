@@ -22,6 +22,10 @@
 import bpy
 from .utils import abs_file_path, import_node_group, link_obj_to_same_collections, get_addon_preferences, addon_name_lowercase
 
+PREVIEW_BJ_IDX = None
+PREVIEW_PASS_IDX = None
+SCENE_NAME = None
+
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baking Tool"
     bl_idname = "CB_PT_SDPanel"
@@ -32,7 +36,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        CyclesBakeSettings = context.scene.cycles_baker_settings
         active_obj = context.active_object
 
         row = layout.row(align=True)
@@ -43,6 +46,36 @@ class CB_PT_SDPanel(bpy.types.Panel):
         row.alignment = 'EXPAND'
         row.separator()
 
+        if context.scene.name == "MD_PREVIEW":
+            row.operator("cycles.close_preview", icon="PANEL_CLOSE")
+            # draw bakepass props based on   global PREVIEW_BJ_IDX, PREVIEW_PASS_TYPE
+            if PREVIEW_BJ_IDX is not None and PREVIEW_PASS_IDX is not None:
+                orig_scene = bpy.data.scenes.get(SCENE_NAME)
+                CyclesBakeSettings = orig_scene.cycles_baker_settings
+                bj = CyclesBakeSettings.bake_job_queue[PREVIEW_BJ_IDX]
+                bakepass = bj.bake_pass_list[PREVIEW_PASS_IDX]
+                row = layout.row(align=True)
+                row.alignment = 'EXPAND'
+                box = row.box().column(align=True)
+
+                subrow = box.row(align=True)
+                subrow.alignment = 'EXPAND'
+                subrow.prop(bakepass, 'pass_type')
+
+                for prop_name, config in bakepass.props().items():
+                    subrow = box.row(align=True)
+                    subrow.alignment = 'EXPAND'
+
+                    if config is None:
+                        subrow.prop(bakepass, prop_name)
+                    elif config["type"] == "prop_search":
+                        subrow.prop_search(bakepass, prop_name, bpy.data, config["search_data"])
+                    elif config["type"] == "toggle":
+                        subrow.prop(bakepass, prop_name, toggle=True)
+
+            return
+
+        CyclesBakeSettings = context.scene.cycles_baker_settings
         for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
             row = layout.row(align=True)
             row.alignment = 'EXPAND'
@@ -192,7 +225,11 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     if bakepass.pass_type in ( "AO_GN", "DEPTH", "CURVATURE"):
                         row = col.row(align=True)
                         row.alignment = 'EXPAND'
-                        row.operator("cycles.preview_pass", text="", icon="HIDE_OFF").pass_type = bakepass.pass_type
+                        op = row.operator("cycles.preview_pass", text="", icon="HIDE_OFF")
+                        op.pass_type = bakepass.pass_type
+                        op.job_index = job_i
+                        op.pass_index = pass_i
+                        op.orig_scene_name = context.scene.name
 
                 row = layout.row(align=True)
                 row.alignment = 'EXPAND'
