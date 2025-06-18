@@ -979,7 +979,7 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         # global PREVIEW_BJ_IDX, PREVIEW_PASS_IDX
         globa_ui.PREVIEW_BJ_IDX = self.job_index
         globa_ui.PREVIEW_PASS_IDX = self.pass_index
-        globa_ui.SCENE_NAME = self.orig_scene_name
+        temp_scn['orig_scene_name'] = self.orig_scene_name  # store original scene name
 
         temp_scn.view_settings.view_transform = 'Standard'  # set view transform to Standard
         temp_scn.cycles.preview_samples = 1

@@ -24,7 +24,6 @@ from .utils import abs_file_path, import_node_group, link_obj_to_same_collection
 
 PREVIEW_BJ_IDX = None
 PREVIEW_PASS_IDX = None
-SCENE_NAME = None
 
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baking Tool"
@@ -50,9 +49,11 @@ class CB_PT_SDPanel(bpy.types.Panel):
             row.operator("cycles.close_preview", icon="PANEL_CLOSE")
             # draw bakepass props based on   global PREVIEW_BJ_IDX, PREVIEW_PASS_TYPE
             if PREVIEW_BJ_IDX is not None and PREVIEW_PASS_IDX is not None:
-                orig_scene = bpy.data.scenes.get(SCENE_NAME)
-                CyclesBakeSettings = orig_scene.cycles_baker_settings
-                bj = CyclesBakeSettings.bake_job_queue[PREVIEW_BJ_IDX]
+                temp_scn = context.scene
+                orig_scene_name = temp_scn['orig_scene_name']
+                orig_scene = bpy.data.scenes.get(orig_scene_name)
+
+                bj = orig_scene.cycles_baker_settings.bake_job_queue[PREVIEW_BJ_IDX]
                 bakepass = bj.bake_pass_list[PREVIEW_PASS_IDX]
                 row = layout.row(align=True)
                 row.alignment = 'EXPAND'
