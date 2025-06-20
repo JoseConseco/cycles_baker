@@ -22,8 +22,6 @@
 import bpy
 from .utils import abs_file_path, import_node_group, link_obj_to_same_collections, get_addon_preferences, addon_name_lowercase
 
-PREVIEW_BJ_IDX = None
-PREVIEW_PASS_IDX = None
 
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baker"
@@ -40,13 +38,15 @@ class CB_PT_SDPanel(bpy.types.Panel):
         if context.scene.name == "MD_PREVIEW":
             layout.operator("cycles.close_preview", icon="PANEL_CLOSE")
 
-            if PREVIEW_BJ_IDX is not None and PREVIEW_PASS_IDX is not None:
-                temp_scn = context.scene
+            temp_scn = context.scene
+            preview_pass_idx = temp_scn.get('preview_pass_idx')
+            preview_jb_idx = temp_scn.get('preview_bj_idx')
+            if preview_jb_idx is not None and preview_pass_idx is not None:
                 orig_scene_name = temp_scn['orig_scene_name']
                 orig_scene = bpy.data.scenes.get(orig_scene_name)
 
-                bj = orig_scene.cycles_baker_settings.bake_job_queue[PREVIEW_BJ_IDX]
-                bakepass = bj.bake_pass_list[PREVIEW_PASS_IDX]
+                bj = orig_scene.cycles_baker_settings.bake_job_queue[preview_jb_idx]
+                bakepass = bj.bake_pass_list[preview_pass_idx]
                 row = layout.row(align=True)
                 box = row.box().column(align=True)
 

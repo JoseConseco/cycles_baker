@@ -977,9 +977,8 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         OLD_RENDER_PASS = context.space_data.shading.render_pass
         context.space_data.shading.cycles.render_pass = 'DIFFUSE_COLOR'
 
-        # global PREVIEW_BJ_IDX, PREVIEW_PASS_IDX
-        globa_ui.PREVIEW_BJ_IDX = self.job_index
-        globa_ui.PREVIEW_PASS_IDX = self.pass_index
+        temp_scn['preview_bj_idx'] = self.job_index
+        temp_scn['preview_pass_idx'] = self.pass_index
         temp_scn['orig_scene_name'] = self.orig_scene_name  # store original scene name
 
         temp_scn.view_settings.view_transform = 'Standard'  # set view transform to Standard
@@ -1023,8 +1022,6 @@ class CB_OT_ClosePreviewOps(bpy.types.Operator):
         context.space_data.shading.type = OLD_SHADING if OLD_SHADING else 'MATERIAL'
         context.space_data.shading.cycles.render_pass = OLD_RENDER_PASS if OLD_RENDER_PASS else 'DIFFUSE_COLOR'
 
-        globa_ui.PREVIEW_BJ_IDX = None
-        globa_ui.PREVIEW_PASS_IDX = None
         return {'FINISHED'}
 
 # cleanup operator (for CB_OT_CyclesBakeOps.cleanup())
