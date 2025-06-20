@@ -26,7 +26,7 @@ PREVIEW_BJ_IDX = None
 PREVIEW_PASS_IDX = None
 
 class CB_PT_SDPanel(bpy.types.Panel):
-    bl_label = "Cycles Baking Tool"
+    bl_label = "Cycles Baker"
     bl_idname = "CB_PT_SDPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -37,17 +37,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
         layout = self.layout
         active_obj = context.active_object
 
-        row = layout.row(align=True)
-        row.alignment = 'EXPAND'
-        row.operator("cycles.bake", text='Bake', icon="SCENE")
-
-        row = layout.row(align=True)
-        row.alignment = 'EXPAND'
-        row.separator()
-
         if context.scene.name == "MD_PREVIEW":
-            row.operator("cycles.close_preview", icon="PANEL_CLOSE")
-            # draw bakepass props based on   global PREVIEW_BJ_IDX, PREVIEW_PASS_TYPE
+            layout.operator("cycles.close_preview", icon="PANEL_CLOSE")
+
             if PREVIEW_BJ_IDX is not None and PREVIEW_PASS_IDX is not None:
                 temp_scn = context.scene
                 orig_scene_name = temp_scn['orig_scene_name']
@@ -56,16 +48,14 @@ class CB_PT_SDPanel(bpy.types.Panel):
                 bj = orig_scene.cycles_baker_settings.bake_job_queue[PREVIEW_BJ_IDX]
                 bakepass = bj.bake_pass_list[PREVIEW_PASS_IDX]
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 box = row.box().column(align=True)
 
                 subrow = box.row(align=True)
-                subrow.alignment = 'EXPAND'
-                subrow.prop(bakepass, 'pass_type')
+                subrow.active = False
+                subrow.label(text=bakepass.pass_type)
 
                 for prop_name, config in bakepass.props().items():
                     subrow = box.row(align=True)
-                    subrow.alignment = 'EXPAND'
 
                     if config is None:
                         subrow.prop(bakepass, prop_name)
@@ -75,11 +65,16 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         subrow.prop(bakepass, prop_name, toggle=True)
 
             return
+        elif context.scene.name == "MD_TEMP":
+            row.operator("cycles.cleanup_cycles_bake", icon="TRASH")
+        else:
+            layout.operator("cycles.bake", text='Bake', icon="SCENE")
+
+        layout.separator()
 
         CyclesBakeSettings = context.scene.cycles_baker_settings
         for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
             row = layout.row(align=True)
-            row.alignment = 'EXPAND'
 
             if bj.expand is False:
                 row.prop(bj, "expand", icon="TRIA_RIGHT", icon_only=True, text=bj.name, emboss=False)
@@ -103,18 +98,15 @@ class CB_PT_SDPanel(bpy.types.Panel):
                 rem.job_index = job_i
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 row.prop(bj, 'bakeResolution', text="Resolution")
 
                 row = layout.row(align=True)
                 row.prop(bj, 'antialiasing', text="AA")
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 row.prop(bj, 'output', text="Path")
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 row.prop(bj, 'name', text="Name")
 
                 row = layout.row(align=True)
@@ -128,10 +120,8 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     sub_r.prop(bj, 'padding_size', text='')
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 for pair_i, pair in enumerate(bj.bake_pairs_list):
                     row = layout.column(align=True).row(align=True)
-                    row.alignment = 'EXPAND'
                     box = row.box().column(align=True)
 
                     subrow = box.row(align=True)
@@ -188,22 +178,18 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     col.prop(pair, "activated", icon_only=True, icon=ic, emboss=False)
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 addpair = row.operator("cyclesbake.add_pair", icon="DISCLOSURE_TRI_RIGHT")
                 addpair.job_index = job_i
 
                 for pass_i, bakepass in enumerate(bj.bake_pass_list):
                     row = layout.row(align=True)
-                    row.alignment = 'EXPAND'
                     box = row.box().column(align=True)
 
                     subrow = box.row(align=True)
-                    subrow.alignment = 'EXPAND'
                     subrow.prop(bakepass, 'pass_type')
 
                     for prop_name, config in bakepass.props().items():
                         subrow = box.row(align=True)
-                        subrow.alignment = 'EXPAND'
 
                         if config is None:
                             subrow.prop(bakepass, prop_name)
@@ -225,7 +211,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     # row for Preview button - with eye icon
                     if bakepass.pass_type in ( "AO_GN", "DEPTH", "CURVATURE"):
                         row = col.row(align=True)
-                        row.alignment = 'EXPAND'
                         op = row.operator("cycles.preview_pass", text="", icon="HIDE_OFF")
                         op.pass_type = bakepass.pass_type
                         op.job_index = job_i
@@ -233,16 +218,13 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         op.orig_scene_name = context.scene.name
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 addpass = row.operator("cyclesbake.add_pass", icon="DISCLOSURE_TRI_RIGHT")
                 addpass.job_index = job_i
 
                 row = layout.row(align=True)
-                row.alignment = 'EXPAND'
                 row.separator()
 
         row = layout.row(align=True)
-        row.alignment = 'EXPAND'
         row.operator("cyclesbake.add_job", icon="ADD")
 
 

@@ -670,11 +670,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if mesh is not None and mesh.users == 0:
             bpy.data.meshes.remove(mesh)
 
-    def cleanup(self):
+    @staticmethod
+    def cleanup():
         scn_tmp = bpy.data.scenes["MD_TEMP"]
         for obj in scn_tmp.objects:
             if obj.get('tmp', False):
-                self.remove_object(obj)
+                CB_OT_CyclesBakeOps.remove_object(obj)
 
         low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
         if low_obj:
@@ -682,7 +683,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             imgnode = bake_mat.node_tree.nodes.get('MDtarget')
             if imgnode:
                 bake_mat.node_tree.nodes.remove(imgnode)  # remove bake image node
-            self.remove_object(low_obj)  # remove lowpoly object
+            CB_OT_CyclesBakeOps.remove_object(low_obj)  # remove lowpoly object
 
         node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_CurvaturePass", "CycBaker_SplitExtrude" ]
         for node_group_name in node_groups_to_remove:
@@ -1024,4 +1025,15 @@ class CB_OT_ClosePreviewOps(bpy.types.Operator):
 
         globa_ui.PREVIEW_BJ_IDX = None
         globa_ui.PREVIEW_PASS_IDX = None
+        return {'FINISHED'}
+
+# cleanup operator (for CB_OT_CyclesBakeOps.cleanup())
+class CB_OT_CleanupCyclesBake(bpy.types.Operator):
+    bl_idname = "cycles.cleanup_cycles_bake"
+    bl_label = "Cleanup Cycles Bake"
+    bl_description = "Cleanup temporary objects and materials created during Cycles baking - useful for cleanup after failed bake"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        CB_OT_CyclesBakeOps.cleanup()
         return {'FINISHED'}
