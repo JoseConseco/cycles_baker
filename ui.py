@@ -56,7 +56,6 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                 for prop_name, config in bakepass.props().items():
                     subrow = box.row(align=True)
-
                     if config is None:
                         subrow.prop(bakepass, prop_name)
                     elif config["type"] == "prop_search":
@@ -66,7 +65,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
             return
         elif context.scene.name == "MD_TEMP":
-            row.operator("cycles.cleanup_cycles_bake", icon="TRASH")
+            layout.operator("cycles.cleanup_cycles_bake", icon="TRASH")
         else:
             layout.operator("cycles.bake", text='Bake', icon="SCENE")
 
@@ -74,43 +73,20 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
         CyclesBakeSettings = context.scene.cycles_baker_settings
         for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
-            row = layout.row(align=True)
+            header, panel = layout.panel_prop(bj, "expand")
+            header.label(text=bj.name)
+            header.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
+            icon = "RESTRICT_RENDER_OFF" if bj.activated else "RESTRICT_RENDER_ON"
+            header.prop(bj, "activated", icon_only=True, icon=icon)
+            header.operator("cyclesbake.rem_job", text="", icon="X").job_index = job_i
 
-            if bj.expand is False:
-                row.prop(bj, "expand", icon="TRIA_RIGHT", icon_only=True, text=bj.name, emboss=False)
+            if panel:
+                panel.prop(bj, 'bakeResolution', text="Resolution")
+                panel.prop(bj, 'antialiasing', text="AA")
+                panel.prop(bj, 'output', text="Path")
+                panel.prop(bj, 'name', text="Name")
 
-                icon = "RESTRICT_RENDER_OFF" if bj.activated else "RESTRICT_RENDER_ON"
-                row.prop(bj, "activated", icon_only=True, icon=icon, emboss=False)
-
-                oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
-                oper.bj_i = job_i
-                rem = row.operator("cyclesbake.rem_job", text="", icon="X")
-                rem.job_index = job_i
-            else:
-                row.prop(bj, "expand", icon="TRIA_DOWN", icon_only=True, text=bj.name, emboss=False)
-
-                icon = "RESTRICT_RENDER_OFF" if bj.activated else "RESTRICT_RENDER_ON"
-                row.prop(bj, "activated", icon_only=True, icon=icon, emboss=False)
-
-                oper = row.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
-                oper.bj_i = job_i
-                rem = row.operator("cyclesbake.rem_job", text="", icon="X")
-                rem.job_index = job_i
-
-                row = layout.row(align=True)
-                row.prop(bj, 'bakeResolution', text="Resolution")
-
-                row = layout.row(align=True)
-                row.prop(bj, 'antialiasing', text="AA")
-
-                row = layout.row(align=True)
-                row.prop(bj, 'output', text="Path")
-
-                row = layout.row(align=True)
-                row.prop(bj, 'name', text="Name")
-
-                row = layout.row(align=True)
-                split = row.split(factor=0.70, align=True)
+                split = panel.split(factor=0.70, align=True)
                 split.prop(bj, 'padding_mode', text='')
                 if bj.padding_mode == 'FIXED':
                     split.prop(bj, 'padding_size', text='')
@@ -119,11 +95,11 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     sub_r.enabled = False
                     sub_r.prop(bj, 'padding_size', text='')
 
-                row = layout.row(align=True)
                 for pair_i, pair in enumerate(bj.bake_pairs_list):
-                    row = layout.column(align=True).row(align=True)
+                    row = panel.column(align=True).row(align=True)
                     box = row.box().column(align=True)
 
+                    # Lowpoly settings
                     subrow = box.row(align=True)
                     ic = "SNAP_FACE" if bpy.data.objects.get(pair.lowpoly) == active_obj else "OBJECT_DATA"
                     subrow.prop_search(pair, "lowpoly", bpy.context.scene, "objects", icon=ic)
@@ -133,6 +109,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     oper.gr_obj = "object"
                     oper.prop = "lowpoly"
 
+                    # Highpoly settings
                     subrow = box.row(align=True)
                     subrow.prop(pair, 'hp_type', expand=True)
                     if pair.hp_type == 'OBJ':
@@ -150,8 +127,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         oper.pair_i = pair_i
                         oper.gr_obj = "group"
                         oper.prop = "highpoly"
-                    subrow = box.row(align=True)
 
+                    # Cage settings
+                    subrow = box.row(align=True)
                     subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
                     if not pair.use_cage:
                         subrow.prop(pair, 'ray_dist', expand=True)
@@ -167,6 +145,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         oper.gr_obj = "object"
                         oper.prop = "cage"
 
+                    # Right side of the box
                     col = row.column()
                     rem = col.operator("cyclesbake.rem_pair", text="", icon="X")
                     rem.pair_index = pair_i
@@ -175,14 +154,13 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     col.operator("cycles.bake", text='', icon="SCENE").bake_pair_index = pair_i
 
                     ic = "RESTRICT_RENDER_ON" if not pair.activated else "RESTRICT_RENDER_OFF"
-                    col.prop(pair, "activated", icon_only=True, icon=ic, emboss=False)
+                    col.prop(pair, "activated", icon_only=True, icon=ic)
 
-                row = layout.row(align=True)
-                addpair = row.operator("cyclesbake.add_pair", icon="DISCLOSURE_TRI_RIGHT")
+                addpair = panel.operator("cyclesbake.add_pair", icon="DISCLOSURE_TRI_RIGHT")
                 addpair.job_index = job_i
 
                 for pass_i, bakepass in enumerate(bj.bake_pass_list):
-                    row = layout.row(align=True)
+                    row = panel.row(align=True)
                     box = row.box().column(align=True)
 
                     subrow = box.row(align=True)
@@ -206,7 +184,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                     row = col.row()
                     icon = "RESTRICT_RENDER_OFF" if bakepass.activated else "RESTRICT_RENDER_ON"
-                    row.prop(bakepass, "activated", icon_only=True, icon=icon, emboss=False)
+                    row.prop(bakepass, "activated", icon_only=True, icon=icon)
 
                     # row for Preview button - with eye icon
                     if bakepass.pass_type in ( "AO_GN", "DEPTH", "CURVATURE"):
@@ -217,15 +195,12 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         op.pass_index = pass_i
                         op.orig_scene_name = context.scene.name
 
-                row = layout.row(align=True)
-                addpass = row.operator("cyclesbake.add_pass", icon="DISCLOSURE_TRI_RIGHT")
+                addpass = panel.operator("cyclesbake.add_pass", icon="DISCLOSURE_TRI_RIGHT")
                 addpass.job_index = job_i
 
-                row = layout.row(align=True)
-                row.separator()
+                panel.separator()
 
-        row = layout.row(align=True)
-        row.operator("cyclesbake.add_job", icon="ADD")
+        layout.operator("cyclesbake.add_job", icon="ADD")
 
 
 panels = (
