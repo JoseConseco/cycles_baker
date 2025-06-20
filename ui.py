@@ -68,7 +68,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
         elif scene.name == "MD_TEMP":
             layout.operator("cycles.cleanup_cycles_bake", icon="TRASH")
         else:
-            layout.operator("cycles.bake", text='Bake', icon="RECORD_ON")
+            row = layout.row(align=True)
+            row.operator("cycles.bake", text='Bake', icon="RECORD_ON")
+            row.popover("CB_PT_PreferencesPopover", text="", icon='PREFERENCES')
 
         layout.separator()
 
@@ -204,8 +206,28 @@ class CB_PT_SDPanel(bpy.types.Panel):
         layout.operator("cyclesbake.add_job", icon="ADD")
 
 
+class CB_PT_PreferencesPopover(bpy.types.Panel):
+    bl_label = "Cycles Baker Preferences"
+    bl_idname = "CB_PT_PreferencesPopover"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'INSTANCED'}
+
+    def draw(self, context):
+        preferences = get_addon_preferences()
+        layout = self.layout
+        layout.ui_units_x = 20  # Adjust this value to control width
+
+        draw_prefs(layout, preferences)
+
+        layout.separator()
+        op = layout.operator("preferences.addon_show", text="Open Addon Preferences", icon='PREFERENCES')
+        op.module = __package__
+
+
 panels = (
     CB_PT_SDPanel,
+    # CB_PT_PreferencesPopover,
 )
 
 def update_panel(self, context):
@@ -224,6 +246,44 @@ def update_panel(self, context):
         pass
 
 
+def draw_prefs(layout, self):
+    row = layout.row(align=True)
+    row.prop(self, "tabs", expand=True)
+    box = layout.box()
+    if self.tabs == "SETTINGS":
+        col = box.column(align=True)
+        col.prop(self, "pair_spacing_distance")
+        col.prop(self, "play_finish_sound", toggle=True)
+        col.separator()
+        col.label(text="Texture Suffixes:")
+        col.prop(self, "DIFFUSE")
+        col.prop(self, "AO")
+        col.prop(self, "NORMAL")
+        col.prop(self, "DEPTH")
+        col.prop(self, "CURVATURE")
+        # col.prop(self, "COMBINED")
+        col.prop(self, "OPACITY")
+
+    elif self.tabs == "UPDATE":
+        col = box.column()
+        sub_row = col.row(align=True)
+        sub_row.operator(addon_name_lowercase()+".check_for_update")
+        split_lines_text = self.update_text.splitlines()
+        for line in split_lines_text:
+            sub_row = col.row(align=True)
+            sub_row.label(text=line)
+        sub_row.separator()
+        sub_row = col.row(align=True)
+        if self.update_exist:
+            sub_row.operator(addon_name_lowercase()+".update_addon", text='Install latest version').reinstall = False
+        else:
+            sub_row.operator(addon_name_lowercase()+".update_addon", text='Reinstall current version').reinstall = True
+        sub_row.operator(addon_name_lowercase()+".update_addon", text='Grab Latest Daily Build').daily_build = True
+        sub_row.operator(addon_name_lowercase()+".rollback_addon")
+
+    elif self.tabs == "CATEGORY":
+        col = box.column()
+        col.prop(self, "category")
 
 
 class CyclesBakerPreferences(bpy.types.AddonPreferences):
@@ -251,44 +311,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
 
 
     def draw(self, context):
-        layout = self.layout
-        row = layout.row(align=True)
-        row.prop(self, "tabs", expand=True)
-        box = layout.box()
-        if self.tabs == "SETTINGS":
-            col = box.column(align=True)
-            col.prop(self, "pair_spacing_distance")
-            col.prop(self, "play_finish_sound", toggle=True)
-            col.separator()
-            col.label(text="Texture Suffixes:")
-            col.prop(self, "DIFFUSE")
-            col.prop(self, "AO")
-            col.prop(self, "NORMAL")
-            col.prop(self, "DEPTH")
-            col.prop(self, "CURVATURE")
-            # col.prop(self, "COMBINED")
-            col.prop(self, "OPACITY")
-
-        elif self.tabs == "UPDATE":
-            col = box.column()
-            sub_row = col.row(align=True)
-            sub_row.operator(addon_name_lowercase()+".check_for_update")
-            split_lines_text = self.update_text.splitlines()
-            for line in split_lines_text:
-                sub_row = col.row(align=True)
-                sub_row.label(text=line)
-            sub_row.separator()
-            sub_row = col.row(align=True)
-            if self.update_exist:
-                sub_row.operator(addon_name_lowercase()+".update_addon", text='Install latest version').reinstall = False
-            else:
-                sub_row.operator(addon_name_lowercase()+".update_addon", text='Reinstall current version').reinstall = True
-            sub_row.operator(addon_name_lowercase()+".update_addon", text='Grab Latest Daily Build').daily_build = True
-            sub_row.operator(addon_name_lowercase()+".rollback_addon")
-
-        elif self.tabs == "CATEGORY":
-            col = box.column()
-            col.prop(self, "category")
+        draw_prefs(self.layout, self)
 
 
 class CB_OT_SDAddPairOp(bpy.types.Operator):
