@@ -481,6 +481,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             bpy.context.space_data.shading.type = 'MATERIAL'
 
             preview_mat = bpy.data.materials.get(bj.name)
+            preview_mat_existed = bool(preview_mat)
             if not preview_mat:
                 preview_mat = bpy.data.materials.new(name=bj.name)
                 preview_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
@@ -498,35 +499,52 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
             if len(obj_list) == 0:
                 continue
 
-            matNodeTree = preview_mat.node_tree
-            for node in matNodeTree.nodes:
-                matNodeTree.nodes.remove(node)
+            mat_ntree = preview_mat.node_tree
+            # if preview_mat_existed:
+                # for node in mat_ntree.nodes:
+                #     mat_ntree.nodes.remove(node)
 
-            links = matNodeTree.links
-            principledNode = matNodeTree.nodes.new('ShaderNodeBsdfPrincipled')
-            principledNode.location = 1300, 200
+            links = mat_ntree.links
+            principledNode = mat_ntree.nodes.get('Principled BSDF')
+            if not principledNode:  # create principled node if not exist
+                principledNode = mat_ntree.nodes.new('ShaderNodeBsdfPrincipled')
+                principledNode.location = 1300, 200
 
-            outputNode = matNodeTree.nodes.new('ShaderNodeOutputMaterial')
-            outputNode.location = 1700, 200
-            links.new(principledNode.outputs[0], outputNode.inputs[0])
+            outputNode = mat_ntree.nodes.get('Material Output')
+            if not outputNode:  # create output node if not exist
+                outputNode = mat_ntree.nodes.new('ShaderNodeOutputMaterial')
+                outputNode.location = principledNode.location + 400, principledNode.location.y
+
+                links.new(principledNode.outputs[0], outputNode.inputs[0])
+
             previousID_AO_Node = None
-            offset_x = 600
+            offset_x = principledNode.location.x - 700
             for bakeIndex, bakeImg in enumerate(imagesFromBakePasses):
                 if not bakeImg :  # skip imgs that could not be loaded
                     continue
+
+                # Check if image node for this bakepass already exists
+                existing_node = None
+                for node in mat_ntree.nodes:
+                    if node.type == 'TEX_IMAGE' and node.image and node.image == bakeImg:
+                        existing_node = node
+                        break
+
+                if existing_node:
+                    continue  # Skip if node already exists with correct image
 
                 y_pos = bakeIndex * 300
                 bakepass = bj.bake_pass_list[bakeIndex]
                 # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
                 if bakepass.pass_type in ("DIFFUSE" , "AO"):
-                    imgNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgNode = mat_ntree.nodes.new('ShaderNodeTexImage')
                     imgNode.name = bakepass.get_pass_suffix()
                     imgNode.label = bakepass.get_pass_suffix()
                     imgNode.location = offset_x, y_pos
                     imgNode.image = bakeImg
 
                     if previousID_AO_Node:
-                        mixNode = matNodeTree.nodes.new('ShaderNodeMixRGB')
+                        mixNode = mat_ntree.nodes.new('ShaderNodeMixRGB')
                         mixNode.location = offset_x + 300, y_pos
                         mixNode.inputs[0].default_value = 1
                         if bakepass.pass_type == "AO":
@@ -541,19 +559,19 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                         previousID_AO_Node = imgNode
 
                 elif bakepass.pass_type == "NORMAL":
-                    imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgNormalNode = mat_ntree.nodes.new('ShaderNodeTexImage')
                     imgNormalNode.name = bakepass.get_pass_suffix()
                     imgNormalNode.label = bakepass.get_pass_suffix()
                     bakeImg.colorspace_settings.name = 'Non-Color' #or normals
                     imgNormalNode.image = bakeImg
                     imgNormalNode.location = offset_x, y_pos
 
-                    normalMapNode = matNodeTree.nodes.new('ShaderNodeNormalMap')
+                    normalMapNode = mat_ntree.nodes.new('ShaderNodeNormalMap')
                     normalMapNode.location = offset_x + 300, y_pos
 
                     if bakepass.nm_invert == 'NEG_Y':  # use DX normal == flip green chanel
                         flip_ng = import_node_group("FlipGreenChannel")
-                        flipGreenNode = matNodeTree.nodes.new('ShaderNodeGroup')
+                        flipGreenNode = mat_ntree.nodes.new('ShaderNodeGroup')
                         flipGreenNode.node_tree = flip_ng
                         flipGreenNode.location = offset_x + 600, y_pos
                         # normalMapNode.location[0] += 200
@@ -565,7 +583,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                         links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
 
                 elif bakepass.pass_type == "OPACITY":
-                    imgOpacityNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgOpacityNode = mat_ntree.nodes.new('ShaderNodeTexImage')
                     imgOpacityNode.name = bakepass.get_pass_suffix()
                     imgOpacityNode.label = bakepass.get_pass_suffix()
                     imgOpacityNode.location = offset_x, y_pos
@@ -573,7 +591,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     links.new(imgOpacityNode.outputs[0], principledNode.inputs['Alpha'])
 
                 else:  # for all other just create img and do not link
-                    imgNormalNode = matNodeTree.nodes.new('ShaderNodeTexImage')
+                    imgNormalNode = mat_ntree.nodes.new('ShaderNodeTexImage')
                     imgNormalNode.name = bakepass.get_pass_suffix()
                     imgNormalNode.label = bakepass.get_pass_suffix()
                     imgNormalNode.image = bakeImg
