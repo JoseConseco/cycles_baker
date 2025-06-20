@@ -76,7 +76,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
         for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
             header, panel = layout.panel_prop(bj, "expand")
             header.label(text=bj.name)
-            header.operator("cyclesbaker.texture_preview", text="", icon="TEXTURE")
+            header.operator("cyclesbaker.texture_preview", text="", icon="MATERIAL_DATA")
             icon = "RESTRICT_RENDER_OFF" if bj.activated else "RESTRICT_RENDER_ON"
             header.prop(bj, "activated", icon_only=True, icon=icon)
             header.operator("cyclesbake.rem_job", text="", icon="X").job_index = job_i
@@ -425,8 +425,8 @@ class CB_OT_CageMaker(bpy.types.Operator):
 
 class CB_OT_CyclesTexturePreview(bpy.types.Operator):
     bl_idname = "cyclesbaker.texture_preview"
-    bl_label = "Preview Baked Texture"
-    bl_description = "Preview texture on model, by assigning bake result to lowpoly objects \n" \
+    bl_label = "Preview Bake"
+    bl_description = "Assign material, with baked textures, to lowpoly model\n" \
                      "Press Shift - to preview multiple bake jobs"
 
     bj_i: bpy.props.IntProperty()
@@ -480,11 +480,11 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     imagesFromBakePasses.append(None)  # to preserve breaking bakePass indexes
             bpy.context.space_data.shading.type = 'MATERIAL'
 
-            mat = bpy.data.materials.get(bj.name)
-            if not mat:
-                mat = bpy.data.materials.new(name=bj.name)
-                mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
-            mat.use_nodes = True
+            preview_mat = bpy.data.materials.get(bj.name)
+            if not preview_mat:
+                preview_mat = bpy.data.materials.new(name=bj.name)
+                preview_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
+            preview_mat.use_nodes = True
 
             obj_list = []
             for pair in bj.bake_pairs_list:
@@ -494,13 +494,14 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
             for obj in obj_list:
                 if obj.type == "MESH":
-                    self.attachCyclesmaterial(obj, mat)
+                    self.attachCyclesmaterial(obj, preview_mat)
             if len(obj_list) == 0:
                 continue
 
-            matNodeTree = mat.node_tree
+            matNodeTree = preview_mat.node_tree
             for node in matNodeTree.nodes:
                 matNodeTree.nodes.remove(node)
+
             links = matNodeTree.links
             principledNode = matNodeTree.nodes.new('ShaderNodeBsdfPrincipled')
             principledNode.location = 1300, 200
