@@ -517,24 +517,36 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
                 links.new(principledNode.outputs[0], outputNode.inputs[0])
 
-            previousID_AO_Node = None
+            prev_ao_diff_node = None
             offset_x = principledNode.location.x - 700
             for bakeIndex, bakeImg in enumerate(imagesFromBakePasses):
                 if not bakeImg :  # skip imgs that could not be loaded
                     continue
 
+                bakepass = bj.bake_pass_list[bakeIndex]
                 # Check if image node for this bakepass already exists
                 existing_node = None
                 for node in mat_ntree.nodes:
                     if node.type == 'TEX_IMAGE' and node.image and node.image == bakeImg:
                         existing_node = node
+                        if bakepass.pass_type in ("DIFFUSE" , "AO"):
+                            if prev_ao_diff_node:
+                                mixNode = mat_ntree.nodes.new('ShaderNodeMixRGB')
+                                mixNode.location = offset_x + 300, (node.location.y + prev_ao_diff_node.location.y) / 2
+                                mixNode.inputs[0].default_value = 1
+                                mixNode.blend_type = 'MULTIPLY'
+
+                                links.new(prev_ao_diff_node.outputs[0], mixNode.inputs[2])
+                                links.new(node.outputs[0], mixNode.inputs[1])
+                                links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
+                            else:
+                                prev_ao_diff_node = node
                         break
 
                 if existing_node:
                     continue  # Skip if node already exists with correct image
 
                 y_pos = bakeIndex * 300
-                bakepass = bj.bake_pass_list[bakeIndex]
                 # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
                 if bakepass.pass_type in ("DIFFUSE" , "AO"):
                     imgNode = mat_ntree.nodes.new('ShaderNodeTexImage')
@@ -543,20 +555,18 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                     imgNode.location = offset_x, y_pos
                     imgNode.image = bakeImg
 
-                    if previousID_AO_Node:
+                    if prev_ao_diff_node:
                         mixNode = mat_ntree.nodes.new('ShaderNodeMixRGB')
-                        mixNode.location = offset_x + 300, y_pos
+                        mixNode.location = offset_x + 300, (node.location.y + prev_ao_diff_node.location.y) / 2
                         mixNode.inputs[0].default_value = 1
-                        if bakepass.pass_type == "AO":
-                            mixNode.blend_type = 'MULTIPLY'
+                        mixNode.blend_type = 'MULTIPLY'
 
-                        links.new(previousID_AO_Node.outputs[0], mixNode.inputs[2])
+                        links.new(prev_ao_diff_node.outputs[0], mixNode.inputs[2])
                         links.new(imgNode.outputs[0], mixNode.inputs[1])
                         links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
-                        previousID_AO_Node = mixNode
                     else:  # first id or AO texture
                         links.new(imgNode.outputs[0], principledNode.inputs['Base Color'])
-                        previousID_AO_Node = imgNode
+                        prev_ao_diff_node = imgNode
 
                 elif bakepass.pass_type == "NORMAL":
                     imgNormalNode = mat_ntree.nodes.new('ShaderNodeTexImage')
