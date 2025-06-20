@@ -966,7 +966,9 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         # Add collection to mesh modifier
         add_collection_to_mesh_mod(high_proxy, out_hi_collection)
 
-        out_hi_collection.hide_viewport = True
+        # out_hi_collection.hide_viewport = True
+        layer_collection = context.view_layer.layer_collection.children.get('HIGHPOLY_PREVIEW')
+        layer_collection.hide_viewport = True  # This controls the 'eye' icon in the outliner
 
         # Add pass-specific modifier and material override
         attrib_mat = import_attrib_bake_mat()

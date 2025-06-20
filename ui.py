@@ -35,10 +35,11 @@ class CB_PT_SDPanel(bpy.types.Panel):
         layout = self.layout
         active_obj = context.active_object
 
-        if context.scene.name == "MD_PREVIEW":
+        scene = context.scene
+        if scene.name == "MD_PREVIEW":
             layout.operator("cycles.close_preview", icon="PANEL_CLOSE")
 
-            temp_scn = context.scene
+            temp_scn = scene
             preview_pass_idx = temp_scn.get('preview_pass_idx')
             preview_jb_idx = temp_scn.get('preview_bj_idx')
             if preview_jb_idx is not None and preview_pass_idx is not None:
@@ -64,14 +65,14 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         subrow.prop(bakepass, prop_name, toggle=True)
 
             return
-        elif context.scene.name == "MD_TEMP":
+        elif scene.name == "MD_TEMP":
             layout.operator("cycles.cleanup_cycles_bake", icon="TRASH")
         else:
-            layout.operator("cycles.bake", text='Bake', icon="SCENE")
+            layout.operator("cycles.bake", text='Bake', icon="RECORD_ON")
 
         layout.separator()
 
-        CyclesBakeSettings = context.scene.cycles_baker_settings
+        CyclesBakeSettings = scene.cycles_baker_settings
         for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
             header, panel = layout.panel_prop(bj, "expand")
             header.label(text=bj.name)
@@ -102,7 +103,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     # Lowpoly settings
                     subrow = box.row(align=True)
                     ic = "SNAP_FACE" if bpy.data.objects.get(pair.lowpoly) == active_obj else "OBJECT_DATA"
-                    subrow.prop_search(pair, "lowpoly", bpy.context.scene, "objects", icon=ic)
+                    subrow.prop_search(pair, "lowpoly", scene, "objects", icon=ic)
                     oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                     oper.bj_i = job_i
                     oper.pair_i = pair_i
@@ -114,7 +115,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     subrow.prop(pair, 'hp_type', expand=True)
                     if pair.hp_type == 'OBJ':
                         ic = "SNAP_FACE" if bpy.data.objects.get(pair.highpoly) == active_obj else "OBJECT_DATA"
-                        subrow.prop_search(pair, "highpoly", bpy.context.scene, "objects", icon=ic)
+                        subrow.prop_search(pair, "highpoly", scene, "objects", icon=ic)
                         oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                         oper.bj_i = job_i
                         oper.pair_i = pair_i
@@ -135,7 +136,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         subrow.prop(pair, 'ray_dist', expand=True)
                         subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
                     else:
-                        subrow.prop_search(pair, "cage", bpy.context.scene, "objects")
+                        subrow.prop_search(pair, "cage", scene, "objects")
                         oper = subrow.operator("cyclesbake.cage_maker", text="", icon="FILE_NEW")
                         oper.bj_i = job_i
                         oper.pair_i = pair_i
@@ -151,10 +152,10 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     rem.pair_index = pair_i
                     rem.job_index = job_i
 
-                    col.operator("cycles.bake", text='', icon="SCENE").bake_pair_index = pair_i
-
                     ic = "RESTRICT_RENDER_ON" if not pair.activated else "RESTRICT_RENDER_OFF"
                     col.prop(pair, "activated", icon_only=True, icon=ic)
+
+                    col.operator("cycles.bake", text='', icon="RECORD_ON").bake_pair_index = pair_i
 
                 addpair = panel.operator("cyclesbake.add_pair", icon="DISCLOSURE_TRI_RIGHT")
                 addpair.job_index = job_i
@@ -193,7 +194,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         op.pass_type = bakepass.pass_type
                         op.job_index = job_i
                         op.pass_index = pass_i
-                        op.orig_scene_name = context.scene.name
+                        op.orig_scene_name = scene.name
 
                 addpass = panel.operator("cyclesbake.add_pass", icon="DISCLOSURE_TRI_RIGHT")
                 addpass.job_index = job_i
