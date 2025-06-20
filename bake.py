@@ -93,6 +93,7 @@ def set_ao_mod(obj, pass_settings):
     return ao_mod
 
 def set_depth_mod(obj, ref_obj, pass_settings):
+    """Calculate depth based on distance from reference (usually lowpoly) object."""
     depth_mod = get_depth_mod(obj)
     if not depth_mod:
         depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
@@ -465,12 +466,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         for i,pair in enumerate(active_pairs):
             offset = self.get_phyllotaxis_offset(i, spacing=addon_prefs.pair_spacing_distance)
 
-            low_poly_obj = bpy.data.objects[pair.lowpoly]
+            low_obj = bpy.data.objects[pair.lowpoly]
 
-            low_poly_obj_cp = low_poly_obj.copy()
-            low_poly_obj_cp.matrix_world.translation += offset
-            lowpoly_objs.append(low_poly_obj_cp)  # To merge them later
-            temp_scn.collection.objects.link(low_poly_obj_cp)  # unlink all other lowpoly objects
+            low_cp = low_obj.copy()
+            low_cp.matrix_world.translation += offset
+            lowpoly_objs.append(low_cp)  # To merge them later
+            temp_scn.collection.objects.link(low_cp)  # unlink all other lowpoly objects
 
             cage = bpy.data.objects.get(pair.cage, None)
             if pair.use_cage and cage:
@@ -481,10 +482,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 temp_cage.matrix_world.translation += offset
             else:
                 # Create temporary cage by displacing vertices along normals
-                temp_cage = low_poly_obj_cp.copy()
-                temp_cage.data = low_poly_obj_cp.data.copy()  # copy mesh data to not affect original
+                temp_cage = low_cp.copy()
+                temp_cage.data = low_cp.data.copy()  # copy mesh data to not affect original
                 temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
-                temp_cage.name = f"TEMP_CAGE_{low_poly_obj_cp.name}"
+                temp_cage.name = f"TEMP_CAGE_{low_cp.name}"
                 dist = get_raycast_distance(bj, pair)
                 displace_mod = add_split_extrude_mod(temp_cage, dist)
 
@@ -915,9 +916,14 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
 
     def execute(self, context):
         cycles_bake_settings = context.scene.cycles_baker_settings
-        active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
+        active_bj = cycles_bake_settings.bake_job_queue[self.job_index]
+        active_pairs = [pair for pair in active_bj.bake_pairs_list if pair.activated]
+        if not active_pairs:
+            self.report({'WARNING'}, "No active low/high-poly bake pairs found for preview.")
+            return {'CANCELLED'}
 
         # Create temp scene
+        print("Creating preview \"MD_PREVIEW\" scene for pass: " + self.pass_type)
         temp_scn = bpy.data.scenes.new("MD_PREVIEW")
         context.window.scene = temp_scn
         temp_scn.render.engine = "CYCLES"
@@ -928,28 +934,33 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         out_hi_collection = bpy.data.collections.new('HIGHPOLY_PREVIEW')
         temp_scn.collection.children.link(out_hi_collection)
 
+        lowpoly_objs = []
         # Copy highpoly objects from all active bake pairs
-        for bj in active_bj:
-            active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]
-            for pair in active_pairs:
-                if pair.hp_type == "GROUP":
-                    hi_collection = bpy.data.collections.get(pair.highpoly)
-                    for obj in hi_collection.objects:
-                        cp = obj.copy()
-                        cp['tmp'] = True
-                        out_hi_collection.objects.link(cp)
-                else:  # pair.hp_type == "OBJ"
-                    hi_poly_obj = bpy.data.objects[pair.highpoly]
-                    cp = hi_poly_obj.copy()
-                    cp['tmp'] = True
+        for pair in active_pairs:
+            if self.pass_type == "DEPTH":
+                low_obj = bpy.data.objects.get(pair.lowpoly)
+                low_cp = low_obj.copy()
+                lowpoly_objs.append(low_cp)  # To merge them later
+                temp_scn.collection.objects.link(low_cp)  # link all lowpoly objects to temp scene
+
+            if pair.hp_type == "GROUP":
+                hi_collection = bpy.data.collections.get(pair.highpoly)
+                for obj in hi_collection.objects:
+                    cp = obj.copy()
+                    # cp['tmp'] = True
                     out_hi_collection.objects.link(cp)
+            else:  # pair.hp_type == "OBJ"
+                hi_poly_obj = bpy.data.objects[pair.highpoly]
+                cp = hi_poly_obj.copy()
+                # cp['tmp'] = True
+                out_hi_collection.objects.link(cp)
 
         # Create proxy object with geometry nodes
         tmp_mesh = bpy.data.meshes.get("Tmp_Preview")
         if not tmp_mesh:
             tmp_mesh = bpy.data.meshes.new("Tmp_Preview")
         high_proxy = bpy.data.objects.new("HighProxy_Preview", tmp_mesh)
-        high_proxy['tmp'] = True
+        # high_proxy['tmp'] = True
         temp_scn.collection.objects.link(high_proxy)
 
         # Add collection to mesh modifier
@@ -961,13 +972,24 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         attrib_mat = import_attrib_bake_mat()
         context.view_layer.material_override = attrib_mat
 
+        if lowpoly_objs:
+            lowpoly_objs[0].name = "LowProxy_Preview"
+
+            if len(lowpoly_objs) > 1:
+                lowpoly_objs[0].data = lowpoly_objs[0].data.copy() # do not affect original lowpoly object
+                with bpy.context.temp_override(selected_editable_objects=lowpoly_objs, active_object=lowpoly_objs[0], selected_objects=lowpoly_objs):
+                    bpy.ops.object.join()
+            lowpoly_objs[0].display_type = 'BOUNDS'
+            lowpoly_objs[0].hide_viewport = True
+
         # Add specific pass modifier based on pass_type
+        bake_pass = active_bj.bake_pass_list[self.pass_index]
         if self.pass_type == "CURVATURE":
-            set_curvature_mod(high_proxy, active_bj[0].bake_pass_list[0])
+            set_curvature_mod(high_proxy, bake_pass)
         elif self.pass_type == "DEPTH":
-            set_depth_mod(high_proxy, None, active_bj[0].bake_pass_list[0])
+            set_depth_mod(high_proxy, lowpoly_objs[0], bake_pass)
         elif self.pass_type == "AO_GN":
-            set_ao_mod(high_proxy, active_bj[0].bake_pass_list[0])
+            set_ao_mod(high_proxy, bake_pass)
 
         # set areas[2].spaces[0].shading.type to Rendred, and preview only Color from diffuse pass
 
@@ -991,7 +1013,7 @@ class CB_OT_ClosePreviewOps(bpy.types.Operator):
     bl_idname = "cycles.close_preview"
     bl_label = "Close Preview"
     bl_description = "Close preview scene and return to original scene"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     def execute(self, context):
         preview_scene = bpy.data.scenes.get("MD_PREVIEW")
@@ -1029,7 +1051,7 @@ class CB_OT_CleanupCyclesBake(bpy.types.Operator):
     bl_idname = "cycles.cleanup_cycles_bake"
     bl_label = "Cleanup Cycles Bake"
     bl_description = "Cleanup temporary objects and materials created during Cycles baking - useful for cleanup after failed bake"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     def execute(self, context):
         CB_OT_CyclesBakeOps.cleanup()

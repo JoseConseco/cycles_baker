@@ -136,7 +136,8 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             # Depth modifier update
             depth_mod = get_depth_mod(proxy_obj)
             if depth_mod:
-                set_depth_mod(proxy_obj, self)
+                low_proxy = bpy.data.objects.get("LowProxy_Preview")
+                set_depth_mod(proxy_obj, low_proxy, self)
                 return
 
             # AO modifier update
