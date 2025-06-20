@@ -282,7 +282,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
         if self.tabs == "SETTINGS":
             col = box.column(align=True)
             col.prop(self, "pair_spacing_distance")
-            col.prop(self, "play_finish_sound")
+            col.prop(self, "play_finish_sound", toggle=True)
             col.separator()
             col.label(text="Texture Suffixes:")
             col.prop(self, "DIFFUSE")
