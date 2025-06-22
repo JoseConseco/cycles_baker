@@ -194,3 +194,34 @@ def add_geonodes_mod(obj, name, node_type):
     ntree = import_node_group(node_type)
     geo_nodes_mod.node_group = ntree
     return geo_nodes_mod
+
+
+def load_baked_images(bj):
+    """Load or reload baked images for a given bake job."""
+    baked_images = []
+    for bakepass in bj.bake_pass_list:
+        if not bakepass.activated:
+            baked_images.append(None)
+            continue
+
+        baked_img_path = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
+
+        # Try to find existing image
+        existing_img = next(
+            (img for img in bpy.data.images
+             if abs_file_path(img.filepath) == baked_img_path),
+            None
+        )
+
+        if existing_img:
+            existing_img.reload()
+            baked_images.append(existing_img)
+        else:
+            try:
+                new_img = bpy.data.images.load(baked_img_path)
+                baked_images.append(new_img)
+            except Exception as e:
+                print(f"Cannot load image {baked_img_path}: {str(e)}")
+                baked_images.append(None)
+
+    return baked_images

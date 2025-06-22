@@ -22,7 +22,7 @@
 import bpy
 from pathlib import Path
 from .utils import get_addon_preferences
-from .bake import draw_cage_callback, set_ao_mod, set_depth_mod, get_ao_mod, set_curvature_mod, get_depth_mod, get_curvature_mod
+from .bake import draw_cage_callback, set_ao_mod, set_depth_mod, get_ao_mod, set_curvature_mod, get_depth_mod, get_curvature_mod,  ht_channel_mixing
 
 
 handleDrawRayDistance = []
@@ -249,8 +249,14 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
             self['padding_size'] = int(int(self.bakeResolution)/64)
 
 
+    def update_compose(self, context):
+        if self.hair_bake_composite:
+            ht_channel_mixing(context, self)
+
     activated: bpy.props.BoolProperty(name="Activated", description="Disable baking set of high-low pairs", default=True)
     expand: bpy.props.BoolProperty(name="Expand", default=True)
+    use_channel_packing: bpy.props.BoolProperty(name="Use channel packing", description="Mix RGBA channels of baked textures in 'Texture Channel Mixing' nodes editor (for now this works only if you have Hair Tool)", default=False, update=update_compose)
+
     bakeResolution: bpy.props.EnumProperty(name="Resolution", default="1024",
                                            items=(("128", "128x128", ""),
                                                   ("256", "256x256", ""),
@@ -275,7 +281,7 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
                                      description='The path of the output image.',
                                      default='//textures/',
                                      subtype='FILE_PATH')
-    name: bpy.props.StringProperty(name='name', description="Output texture name", default='bake_name')
+    name: bpy.props.StringProperty(name='name', description="Output texture name", default='bake')
 
 
     bake_pairs_list: bpy.props.CollectionProperty(type=CyclesBakePair)

@@ -20,7 +20,13 @@
 
 
 import bpy
-from .utils import abs_file_path, import_node_group, link_obj_to_same_collections, get_addon_preferences, addon_name_lowercase
+from .utils import (
+    load_baked_images,
+    import_node_group,
+    link_obj_to_same_collections,
+    get_addon_preferences,
+    addon_name_lowercase,
+)
 
 
 class CB_PT_SDPanel(bpy.types.Panel):
@@ -78,16 +84,17 @@ class CB_PT_SDPanel(bpy.types.Panel):
         for job_i, bj in enumerate(CyclesBakeSettings.bake_job_queue):
             header, panel = layout.panel_prop(bj, "expand")
             header.label(text=bj.name)
-            header.operator("cyclesbaker.texture_preview", text="", icon="MATERIAL_DATA")
+            header.operator("cyclesbaker.texture_preview", text="", icon="MATERIAL_DATA").bj_index = job_i
             icon = "RESTRICT_RENDER_OFF" if bj.activated else "RESTRICT_RENDER_ON"
             header.prop(bj, "activated", icon_only=True, icon=icon)
             header.operator("cyclesbake.rem_job", text="", icon="X").job_index = job_i
 
             if panel:
+                panel.prop(bj, 'name', text="Name")
                 panel.prop(bj, 'bakeResolution', text="Resolution")
                 panel.prop(bj, 'antialiasing', text="AA")
                 panel.prop(bj, 'output', text="Path")
-                panel.prop(bj, 'name', text="Name")
+                panel.prop(bj, 'use_channel_packing', icon='NODE_COMPOSITING')
 
                 split = panel.split(factor=0.70, align=True)
                 split.prop(bj, 'padding_mode', text='')
@@ -449,16 +456,9 @@ class CB_OT_CageMaker(bpy.types.Operator):
 class CB_OT_CyclesTexturePreview(bpy.types.Operator):
     bl_idname = "cyclesbaker.texture_preview"
     bl_label = "Preview Bake"
-    bl_description = "Assign material, with baked textures, to lowpoly model\n" \
-                     "Press Shift - to preview multiple bake jobs"
+    bl_description = "Assign material, with baked textures, to lowpoly model"
 
-    bj_i: bpy.props.IntProperty()
-    shiftClicked = False
-
-    def invoke(self, context, event):
-        if event.shift:
-            self.shiftClicked = True
-        return self.execute(context)
+    bj_index: bpy.props.IntProperty()
 
     def attachCyclesmaterial(self, obj, mat):
         if len(obj.material_slots) == 0:
@@ -468,167 +468,143 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
         if bpy.context.scene.render.engine == 'CYCLES':
             obj.data.materials[0].use_nodes = True
 
+
     def execute(self, context):
         cycles_bake_settings = bpy.context.scene.cycles_baker_settings
-        if self.shiftClicked:
-            bjList = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
-        else:
-            bjList = [cycles_bake_settings.bake_job_queue[self.bj_i],]
-        imagesFromBakePasses = []
-        for bj in bjList:
-            imagesFromBakePasses.clear()
-            for bakepass in bj.bake_pass_list:  # refresh or load images from bakes
-                if bakepass.activated:
-                    bakedImgPath = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
-                    imgAlreadyExist = False
-                    oldImg = []
-                    for img in bpy.data.images:  # find if bake is already loaded into bi images
-                        if bakedImgPath == abs_file_path(img.filepath):
-                            if bakepass.activated:
-                                img.reload()
-                            imgAlreadyExist = True
-                            oldImg = img
-                            break
-                    if imgAlreadyExist:
-                        imagesFromBakePasses.append(oldImg)
-                        # print("found bake in bi images")
-                    else:
-                        try:
-                            im = bpy.data.images.load(bakedImgPath)
-                            imagesFromBakePasses.append(im)
-                        except Exception as e:
-                            print(f"Cannot load image {bakedImgPath}: {str(e)}")
-                            imagesFromBakePasses.append(None)  # preserve index
-                else:
-                    imagesFromBakePasses.append(None)  # to preserve breaking bakePass indexes
-            bpy.context.space_data.shading.type = 'MATERIAL'
+        bj = cycles_bake_settings.bake_job_queue[self.bj_i]
 
-            preview_mat = bpy.data.materials.get(bj.name)
-            preview_mat_existed = bool(preview_mat)
-            if not preview_mat:
-                preview_mat = bpy.data.materials.new(name=bj.name)
-                preview_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
-            preview_mat.use_nodes = True
+        bpy.context.space_data.shading.type = 'MATERIAL'
 
-            obj_list = []
-            for pair in bj.bake_pairs_list:
-                lowpoly = bpy.data.objects.get(pair.lowpoly)
-                if lowpoly:  # create group for hipoly
-                    obj_list.append(bpy.data.objects[pair.lowpoly])
+        # preview_mat_existed = bool(preview_mat)
+        preview_mat = bpy.data.materials.get(bj.name)
+        if not preview_mat:
+            preview_mat = bpy.data.materials.new(name=bj.name)
+            preview_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1)
+        preview_mat.use_nodes = True
 
-            for obj in obj_list:
-                if obj.type == "MESH":
-                    self.attachCyclesmaterial(obj, preview_mat)
-            if len(obj_list) == 0:
+        low_objs = []
+        for pair in bj.bake_pairs_list:
+            lowpoly = bpy.data.objects.get(pair.lowpoly)
+            if lowpoly:  # create group for hipoly
+                low_objs.append(bpy.data.objects[pair.lowpoly])
+
+        if not low_objs:
+            self.report({'ERROR'}, "No lowpoly objects found in the bake job.")
+            return {'CANCELLED'}
+
+        for obj in low_objs:
+            if obj.type == "MESH":
+                self.attachCyclesmaterial(obj, preview_mat)
+
+        mat_ntree = preview_mat.node_tree
+        # if preview_mat_existed:
+            # for node in mat_ntree.nodes:
+            #     mat_ntree.nodes.remove(node)
+
+        links = mat_ntree.links
+        principledNode = mat_ntree.nodes.get('Principled BSDF')
+        if not principledNode:  # create principled node if not exist
+            principledNode = mat_ntree.nodes.new('ShaderNodeBsdfPrincipled')
+            principledNode.location = 1300, 200
+
+        outputNode = mat_ntree.nodes.get('Material Output')
+        if not outputNode:  # create output node if not exist
+            outputNode = mat_ntree.nodes.new('ShaderNodeOutputMaterial')
+            outputNode.location = principledNode.location + 400, principledNode.location.y
+
+            links.new(principledNode.outputs[0], outputNode.inputs[0])
+
+        prev_ao_diff_node = None
+        offset_x = principledNode.location.x - 700
+
+        imagesFromBakePasses = load_baked_images(bj)
+        for bakeIndex, bakeImg in enumerate(imagesFromBakePasses):
+            if not bakeImg :  # skip imgs that could not be loaded
                 continue
 
-            mat_ntree = preview_mat.node_tree
-            # if preview_mat_existed:
-                # for node in mat_ntree.nodes:
-                #     mat_ntree.nodes.remove(node)
+            bakepass = bj.bake_pass_list[bakeIndex]
+            # Check if image node for this bakepass already exists
+            existing_node = None
+            for node in mat_ntree.nodes:
+                if node.type == 'TEX_IMAGE' and node.image and node.image == bakeImg:
+                    existing_node = node
+                    if bakepass.pass_type in ("DIFFUSE" , "AO"):
+                        if prev_ao_diff_node:
+                            mixNode = mat_ntree.nodes.new('ShaderNodeMixRGB')
+                            mixNode.location = offset_x + 300, (node.location.y + prev_ao_diff_node.location.y) / 2
+                            mixNode.inputs[0].default_value = 1
+                            mixNode.blend_type = 'MULTIPLY'
 
-            links = mat_ntree.links
-            principledNode = mat_ntree.nodes.get('Principled BSDF')
-            if not principledNode:  # create principled node if not exist
-                principledNode = mat_ntree.nodes.new('ShaderNodeBsdfPrincipled')
-                principledNode.location = 1300, 200
+                            links.new(prev_ao_diff_node.outputs[0], mixNode.inputs[2])
+                            links.new(node.outputs[0], mixNode.inputs[1])
+                            links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
+                        else:
+                            prev_ao_diff_node = node
+                    break
 
-            outputNode = mat_ntree.nodes.get('Material Output')
-            if not outputNode:  # create output node if not exist
-                outputNode = mat_ntree.nodes.new('ShaderNodeOutputMaterial')
-                outputNode.location = principledNode.location + 400, principledNode.location.y
+            if existing_node:
+                continue  # Skip if node already exists with correct image
 
-                links.new(principledNode.outputs[0], outputNode.inputs[0])
+            y_pos = bakeIndex * 300
+            # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
+            if bakepass.pass_type in ("DIFFUSE" , "AO"):
+                imgNode = mat_ntree.nodes.new('ShaderNodeTexImage')
+                imgNode.name = bakepass.get_pass_suffix()
+                imgNode.label = bakepass.get_pass_suffix()
+                imgNode.location = offset_x, y_pos
+                imgNode.image = bakeImg
 
-            prev_ao_diff_node = None
-            offset_x = principledNode.location.x - 700
-            for bakeIndex, bakeImg in enumerate(imagesFromBakePasses):
-                if not bakeImg :  # skip imgs that could not be loaded
-                    continue
+                if prev_ao_diff_node:
+                    mixNode = mat_ntree.nodes.new('ShaderNodeMixRGB')
+                    mixNode.location = offset_x + 300, (node.location.y + prev_ao_diff_node.location.y) / 2
+                    mixNode.inputs[0].default_value = 1
+                    mixNode.blend_type = 'MULTIPLY'
 
-                bakepass = bj.bake_pass_list[bakeIndex]
-                # Check if image node for this bakepass already exists
-                existing_node = None
-                for node in mat_ntree.nodes:
-                    if node.type == 'TEX_IMAGE' and node.image and node.image == bakeImg:
-                        existing_node = node
-                        if bakepass.pass_type in ("DIFFUSE" , "AO"):
-                            if prev_ao_diff_node:
-                                mixNode = mat_ntree.nodes.new('ShaderNodeMixRGB')
-                                mixNode.location = offset_x + 300, (node.location.y + prev_ao_diff_node.location.y) / 2
-                                mixNode.inputs[0].default_value = 1
-                                mixNode.blend_type = 'MULTIPLY'
+                    links.new(prev_ao_diff_node.outputs[0], mixNode.inputs[2])
+                    links.new(imgNode.outputs[0], mixNode.inputs[1])
+                    links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
+                else:  # first id or AO texture
+                    links.new(imgNode.outputs[0], principledNode.inputs['Base Color'])
+                    prev_ao_diff_node = imgNode
 
-                                links.new(prev_ao_diff_node.outputs[0], mixNode.inputs[2])
-                                links.new(node.outputs[0], mixNode.inputs[1])
-                                links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
-                            else:
-                                prev_ao_diff_node = node
-                        break
+            elif bakepass.pass_type == "NORMAL":
+                imgNormalNode = mat_ntree.nodes.new('ShaderNodeTexImage')
+                imgNormalNode.name = bakepass.get_pass_suffix()
+                imgNormalNode.label = bakepass.get_pass_suffix()
+                bakeImg.colorspace_settings.name = 'Non-Color' #or normals
+                imgNormalNode.image = bakeImg
+                imgNormalNode.location = offset_x, y_pos
 
-                if existing_node:
-                    continue  # Skip if node already exists with correct image
+                normalMapNode = mat_ntree.nodes.new('ShaderNodeNormalMap')
+                normalMapNode.location = offset_x + 300, y_pos
 
-                y_pos = bakeIndex * 300
-                # if not foundTextureSlotWithBakeImg: # always true in loop above wass not continued
-                if bakepass.pass_type in ("DIFFUSE" , "AO"):
-                    imgNode = mat_ntree.nodes.new('ShaderNodeTexImage')
-                    imgNode.name = bakepass.get_pass_suffix()
-                    imgNode.label = bakepass.get_pass_suffix()
-                    imgNode.location = offset_x, y_pos
-                    imgNode.image = bakeImg
+                if bakepass.nm_invert == 'NEG_Y':  # use DX normal == flip green chanel
+                    flip_ng = import_node_group("FlipGreenChannel")
+                    flipGreenNode = mat_ntree.nodes.new('ShaderNodeGroup')
+                    flipGreenNode.node_tree = flip_ng
+                    flipGreenNode.location = offset_x + 600, y_pos
+                    # normalMapNode.location[0] += 200
+                    links.new(imgNormalNode.outputs[0], flipGreenNode.inputs[0])
+                    links.new(flipGreenNode.outputs[0], normalMapNode.inputs[1])
+                    links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
+                else:
+                    links.new(imgNormalNode.outputs[0], normalMapNode.inputs[1])
+                    links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
 
-                    if prev_ao_diff_node:
-                        mixNode = mat_ntree.nodes.new('ShaderNodeMixRGB')
-                        mixNode.location = offset_x + 300, (node.location.y + prev_ao_diff_node.location.y) / 2
-                        mixNode.inputs[0].default_value = 1
-                        mixNode.blend_type = 'MULTIPLY'
+            elif bakepass.pass_type == "OPACITY":
+                imgOpacityNode = mat_ntree.nodes.new('ShaderNodeTexImage')
+                imgOpacityNode.name = bakepass.get_pass_suffix()
+                imgOpacityNode.label = bakepass.get_pass_suffix()
+                imgOpacityNode.location = offset_x, y_pos
+                imgOpacityNode.image = bakeImg
+                links.new(imgOpacityNode.outputs[0], principledNode.inputs['Alpha'])
 
-                        links.new(prev_ao_diff_node.outputs[0], mixNode.inputs[2])
-                        links.new(imgNode.outputs[0], mixNode.inputs[1])
-                        links.new(mixNode.outputs[0], principledNode.inputs['Base Color'])
-                    else:  # first id or AO texture
-                        links.new(imgNode.outputs[0], principledNode.inputs['Base Color'])
-                        prev_ao_diff_node = imgNode
-
-                elif bakepass.pass_type == "NORMAL":
-                    imgNormalNode = mat_ntree.nodes.new('ShaderNodeTexImage')
-                    imgNormalNode.name = bakepass.get_pass_suffix()
-                    imgNormalNode.label = bakepass.get_pass_suffix()
-                    bakeImg.colorspace_settings.name = 'Non-Color' #or normals
-                    imgNormalNode.image = bakeImg
-                    imgNormalNode.location = offset_x, y_pos
-
-                    normalMapNode = mat_ntree.nodes.new('ShaderNodeNormalMap')
-                    normalMapNode.location = offset_x + 300, y_pos
-
-                    if bakepass.nm_invert == 'NEG_Y':  # use DX normal == flip green chanel
-                        flip_ng = import_node_group("FlipGreenChannel")
-                        flipGreenNode = mat_ntree.nodes.new('ShaderNodeGroup')
-                        flipGreenNode.node_tree = flip_ng
-                        flipGreenNode.location = offset_x + 600, y_pos
-                        # normalMapNode.location[0] += 200
-                        links.new(imgNormalNode.outputs[0], flipGreenNode.inputs[0])
-                        links.new(flipGreenNode.outputs[0], normalMapNode.inputs[1])
-                        links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
-                    else:
-                        links.new(imgNormalNode.outputs[0], normalMapNode.inputs[1])
-                        links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
-
-                elif bakepass.pass_type == "OPACITY":
-                    imgOpacityNode = mat_ntree.nodes.new('ShaderNodeTexImage')
-                    imgOpacityNode.name = bakepass.get_pass_suffix()
-                    imgOpacityNode.label = bakepass.get_pass_suffix()
-                    imgOpacityNode.location = offset_x, y_pos
-                    imgOpacityNode.image = bakeImg
-                    links.new(imgOpacityNode.outputs[0], principledNode.inputs['Alpha'])
-
-                else:  # for all other just create img and do not link
-                    imgNormalNode = mat_ntree.nodes.new('ShaderNodeTexImage')
-                    imgNormalNode.name = bakepass.get_pass_suffix()
-                    imgNormalNode.label = bakepass.get_pass_suffix()
-                    imgNormalNode.image = bakeImg
-                    imgNormalNode.location = 800, y_pos
+            else:  # for all other just create img and do not link
+                imgNormalNode = mat_ntree.nodes.new('ShaderNodeTexImage')
+                imgNormalNode.name = bakepass.get_pass_suffix()
+                imgNormalNode.label = bakepass.get_pass_suffix()
+                imgNormalNode.image = bakeImg
+                imgNormalNode.location = 800, y_pos
 
         return {'FINISHED'}
 

@@ -29,7 +29,7 @@ from datetime import datetime
 import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
-from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat
+from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat, load_baked_images
 from . import ui as globa_ui
 
 # CB_AOPass
@@ -345,6 +345,49 @@ def eval_mesh_from_obj(self, obj, deps):
     new_obj.matrix_world = obj.matrix_world
     return new_obj
 
+
+def is_htool_installed(context):
+    return bool(bpy.context.preferences.addons.get('hair_tool'))
+
+
+def ht_channel_mixing(context, bj):
+    ''' Create compositing node tree and load baked imgs'''
+    if not is_htool_installed: # no Hair Tool - no channel mixing
+        print("Hair Toon addon is not installed. Cannot create channel mixing nodes.")
+        return
+
+    mix_name = 'CyclesBaker_ChannelMixing'
+    if mix_name not in bpy.data.node_groups.keys():
+        bpy.ops.node.new_node_tree(type='TextureChannelMixing', name=mix_name)
+
+    node_tree = bpy.data.node_groups.get(mix_name)
+    if node_tree is None:
+        print(f"Node tree '{mix_name}' not found. Cannot create channel mixing nodes.")
+        return
+    node_tree.restart_node_tree()
+    # addon_prefs = get_addon_preferences()
+
+    bake_images = load_baked_images(bj)
+    for i, (pass_img, bpass) in enumerate(zip(bake_images, bj.bake_pass_list)):
+        if not pass_img:
+            continue  # skip if no image for this pass
+        # imgPath = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
+        img_node = None
+        for node in node_tree.nodes:
+            if node.bl_idname == 'TextureMixInputTexture' and node.img == pass_img:
+                img_node = node
+                pass_img.preview_ensure()
+
+        if img_node is None:
+            img_node = node_tree.nodes.new('TextureMixInputTexture')
+            img_node.name = bpass.pass_type
+            pass_img.preview_ensure() # or else it will throw error - no:  img.preview.icon_id
+            img_node.img = pass_img  # also refreshes img...
+            img_node.location[1] = i * 200
+            img_node.width = 220
+
+        # bpy.data.images.remove(img)
+    # outputImg.filepath_raw = bpy.path.abspath(bake_settings.hair_bake_path + "Hair_compo." + ext)
 
 
 class CB_OT_CyclesBakeOps(bpy.types.Operator):
@@ -870,6 +913,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             self.cleanup()  # delete scene
             wm.progress_end()
 
+            if is_htool_installed(context) and bj.use_channel_packing:
+                ht_channel_mixing(context, bj)  # create channel mixing nodes for hair toon
 
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
         addon_prefs = get_addon_preferences()
