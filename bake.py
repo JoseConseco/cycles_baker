@@ -50,6 +50,8 @@ from . import ui as globa_ui
 # Socket_2 > {'name': 'Contrast', 'type': 'NodeSocketFloat', 'default_value': 1.0, 'min_value': 0.009999999776482582, 'max_value': 1.0, 'subtype': 'FACTOR', 'description': ''}
 # Socket_3 > {'name': 'Blur', 'type': 'NodeSocketInt', 'default_value': 3, 'min_value': 0, 'max_value': 2147483647, 'subtype': 'NONE', 'description': ''}
 
+node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_CurvaturePass", "CycBaker_SplitExtrude", "CB_CollectionToMesh" ]
+
 def add_split_extrude_mod(obj, displace_val):
     gn_displce = add_geonodes_mod(obj, "Cage CBaker", "CycBaker_SplitExtrude")
     #  'Socket_2' > 'Offset'
@@ -110,6 +112,7 @@ def set_curvature_mod(obj, pass_settings):
         curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
     curvature_mod['Socket_4'] = int(pass_settings.curvature_mode)     # Menu (Smooth/Sharp)
     curvature_mod['Socket_2'] = pass_settings.curvature_contrast # Contrast
+    curvature_mod['Socket_6'] = pass_settings.curvature_brightness # Brightness
     curvature_mod['Socket_3'] = pass_settings.curvature_blur     # Blur
     obj.modifiers.update()  # Update modifier to apply changes
     obj.update_tag()
@@ -725,7 +728,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 bake_mat.node_tree.nodes.remove(imgnode)  # remove bake image node
             CB_OT_CyclesBakeOps.remove_object(low_obj)  # remove lowpoly object
 
-        node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_CurvaturePass", "CycBaker_SplitExtrude" ]
         for node_group_name in node_groups_to_remove:
             node_group = bpy.data.node_groups.get(node_group_name)
             if node_group:
@@ -1077,6 +1079,11 @@ class CB_OT_ClosePreviewOps(bpy.types.Operator):
             attrib_mat = bpy.data.materials.get("CBaker_AttribMaterial")
             if attrib_mat:
                 bpy.data.materials.remove(attrib_mat, do_unlink=True)
+
+            for node_group_name in node_groups_to_remove:
+                node_group = bpy.data.node_groups.get(node_group_name)
+                if node_group:
+                    bpy.data.node_groups.remove(node_group)
 
             # Remove preview scene
             original_scene = bpy.data.scenes.get("Scene")
