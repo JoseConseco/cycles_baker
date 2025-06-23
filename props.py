@@ -54,6 +54,7 @@ class CyclesBakePair(bpy.types.PropertyGroup):
                 handleDrawRayDistance.clear()
 
     activated: bpy.props.BoolProperty( name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
+    expand: bpy.props.BoolProperty(name="Expand", default=True)
     lowpoly: bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
     highpoly: bpy.props.StringProperty(name="", description="Highpoly mesh", default="")
     hp_type: bpy.props.EnumProperty( name="Object vs Group", description="", default="OBJ",

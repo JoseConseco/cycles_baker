@@ -106,66 +106,79 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     sub_r.prop(bj, 'padding_size', text='')
 
                 for pair_i, pair in enumerate(bj.bake_pairs_list):
-                    row = panel.column(align=True).row(align=True)
-                    box = row.box().column(align=True)
-
-                    # Lowpoly settings
-                    subrow = box.row(align=True)
-                    ic = "SNAP_FACE" if bpy.data.objects.get(pair.lowpoly) == active_obj else "OBJECT_DATA"
-                    subrow.prop_search(pair, "lowpoly", scene, "objects", icon=ic)
-                    oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
-                    oper.bj_i = job_i
-                    oper.pair_i = pair_i
-                    oper.gr_obj = "object"
-                    oper.prop = "lowpoly"
-
-                    # Highpoly settings
-                    subrow = box.row(align=True)
-                    subrow.prop(pair, 'hp_type', expand=True)
+                    # row = panel.column(align=True).row(align=True)
+                    # box = panel.box().column(align=True)
+                    sub_header, sub_panel = panel.panel_prop(pair, "expand")
+                    low_is_selected = bpy.data.objects.get(pair.lowpoly) == active_obj
+                    low_name = f"[{pair.lowpoly}]" if low_is_selected else pair.lowpoly
                     if pair.hp_type == 'OBJ':
-                        ic = "SNAP_FACE" if bpy.data.objects.get(pair.highpoly) == active_obj else "OBJECT_DATA"
-                        subrow.prop_search(pair, "highpoly", scene, "objects", icon=ic)
-                        oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
-                        oper.bj_i = job_i
-                        oper.pair_i = pair_i
-                        oper.gr_obj = "object"
-                        oper.prop = "highpoly"
+                        high_is_selected = bpy.data.objects.get(pair.highpoly) == active_obj
+                        high_name = f"[{pair.highpoly}]" if high_is_selected else pair.highpoly
                     else:
-                        subrow.prop_search(pair, "highpoly", bpy.data, "collections")
-                        oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
-                        oper.bj_i = job_i
-                        oper.pair_i = pair_i
-                        oper.gr_obj = "group"
-                        oper.prop = "highpoly"
+                        high_name = f"[{pair.highpoly}]" if bpy.data.collections.get(pair.highpoly) else pair.highpoly
 
-                    # Cage settings
-                    subrow = box.row(align=True)
-                    subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
-                    if not pair.use_cage:
-                        subrow.prop(pair, 'ray_dist', expand=True)
-                        subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
-                    else:
-                        subrow.prop_search(pair, "cage", scene, "objects")
-                        oper = subrow.operator("cyclesbake.cage_maker", text="", icon="FILE_NEW")
-                        oper.bj_i = job_i
-                        oper.pair_i = pair_i
-                        oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
-                        oper.bj_i = job_i
-                        oper.pair_i = pair_i
-                        oper.gr_obj = "object"
-                        oper.prop = "cage"
+                    icon = "CHECKBOX_HLT" if pair.activated else "CHECKBOX_DEHLT"
+                    sub_header.prop(pair, 'activated',text=f"PAIR: {low_name} - {high_name}", icon=icon, emboss=False)
+                    sub_header.operator("cycles.bake", text='', icon="RECORD_ON").bake_pair_index = pair_i
 
-                    # Right side of the box
-                    col = row.column()
-                    rem = col.operator("cyclesbake.rem_pair", text="", icon="X")
+
+                    rem = sub_header.operator("cyclesbake.rem_pair", text="", icon="X")
                     rem.pair_index = pair_i
                     rem.job_index = job_i
 
-                    ic = "RESTRICT_RENDER_ON" if not pair.activated else "RESTRICT_RENDER_OFF"
-                    col.prop(pair, "activated", icon_only=True, icon=ic)
+                    if sub_panel:
+                        sub_panel.enabled = pair.activated
+                        split = sub_panel.split(factor=0.05, align=True)
+                        split.separator()
+                        col = split.column(align=True)
+                        # Lowpoly settings
+                        subrow = col.row(align=True)
+                        ic = "SNAP_FACE" if low_is_selected else "OBJECT_DATA"
+                        subrow.prop_search(pair, "lowpoly", scene, "objects", icon=ic)
+                        oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                        oper.bj_i = job_i
+                        oper.pair_i = pair_i
+                        oper.gr_obj = "object"
+                        oper.prop = "lowpoly"
 
-                    col.operator("cycles.bake", text='', icon="RECORD_ON").bake_pair_index = pair_i
+                        # Highpoly settings
+                        subrow = col.row(align=True)
+                        subrow.prop(pair, 'hp_type', expand=True)
+                        if pair.hp_type == 'OBJ':
+                            ic = "SNAP_FACE" if high_is_selected else "OBJECT_DATA"
+                            subrow.prop_search(pair, "highpoly", scene, "objects", icon=ic)
+                            oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                            oper.bj_i = job_i
+                            oper.pair_i = pair_i
+                            oper.gr_obj = "object"
+                            oper.prop = "highpoly"
+                        else:
+                            subrow.prop_search(pair, "highpoly", bpy.data, "collections")
+                            oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                            oper.bj_i = job_i
+                            oper.pair_i = pair_i
+                            oper.gr_obj = "group"
+                            oper.prop = "highpoly"
 
+                        # Cage settings
+                        subrow = col.row(align=True)
+                        subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
+                        if not pair.use_cage:
+                            subrow.prop(pair, 'ray_dist', expand=True)
+                            subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
+                        else:
+                            subrow.prop_search(pair, "cage", scene, "objects")
+                            oper = subrow.operator("cyclesbake.cage_maker", text="", icon="FILE_NEW")
+                            oper.bj_i = job_i
+                            oper.pair_i = pair_i
+                            oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
+                            oper.bj_i = job_i
+                            oper.pair_i = pair_i
+                            oper.gr_obj = "object"
+                            oper.prop = "cage"
+
+                        # Right side of the box
+                        #
                 split = panel.split(factor=0.50, align=True)
                 split.separator()
                 addpair = split.operator("cyclesbake.add_pair", icon="ADD")
@@ -184,7 +197,8 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         op.pass_index = pass_i
                         op.orig_scene_name = scene.name
 
-                    icon = "RESTRICT_RENDER_OFF" if bakepass.activated else "RESTRICT_RENDER_ON"
+                    # icon = "RESTRICT_RENDER_OFF" if bakepass.activated else "RESTRICT_RENDER_ON"
+                    icon = "CHECKBOX_HLT" if bakepass.activated else "CHECKBOX_DEHLT"
                     sub_header.prop(bakepass, "activated", icon_only=True, icon=icon)
 
                     rem = sub_header.operator("cyclesbake.rem_pass", text="", icon="X")
@@ -192,6 +206,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     rem.job_index = job_i
 
                     if sub_panel:
+                        sub_panel.enabled = bakepass.activated
                         col = sub_panel.column(align=True)
                         # box = row.box().column(align=True)
 
