@@ -334,7 +334,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     update_exist: bpy.props.BoolProperty(name="Update Exist", description="There is new GroupPro update",  default=False)
     update_text: bpy.props.StringProperty(name="Update text",  default='')
 
-    pair_spacing_distance: bpy.props.FloatProperty(name="Pair Spread Distance", description="Offset added between high-low pairs during bake, to prevent object pairs affecting each other", default=5.0, min=0.01, soft_max=10.0)
+    pair_spacing_distance: bpy.props.FloatProperty(name="Pair Spread Distance", description="Offset added between high-low pairs during bake, to prevent object pairs affecting each other", default=10.0, min=0.01, soft_max=100.0)
     play_finish_sound: bpy.props.BoolProperty(name="Play Finish Sound", description="Play sound when baking finished", default=True)
 
 
@@ -507,7 +507,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
     def execute(self, context):
         cycles_bake_settings = bpy.context.scene.cycles_baker_settings
-        bj = cycles_bake_settings.bake_job_queue[self.bj_i]
+        bj = cycles_bake_settings.bake_job_queue[self.bj_index]
 
         bpy.context.space_data.shading.type = 'MATERIAL'
 

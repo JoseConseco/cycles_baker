@@ -29,7 +29,7 @@ from datetime import datetime
 import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
-from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat, load_baked_images
+from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat, load_baked_images, clear_parent
 from . import ui as globa_ui
 
 # CB_AOPass
@@ -504,14 +504,34 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
 
         addon_prefs = get_addon_preferences()
+        spacing = addon_prefs.pair_spacing_distance
 
-        for i,pair in enumerate(active_pairs):
-            offset = self.get_phyllotaxis_offset(i, spacing=addon_prefs.pair_spacing_distance)
+        deps = context.evaluated_depsgraph_get() # fix for b. 4.2 - where obj.matrix_world is messed up on operator redo. Thus use eval_obj.matrix_world
+
+        square_cnt = math.ceil(len(active_pairs)**0.5)  # calculate grid size based on number of pairs
+        grid_center = (square_cnt - 1) * spacing * Vector((0.5, 0.5, 0))
+        for i, pair in enumerate(active_pairs):
+            row = i // square_cnt
+            col = i % square_cnt
+            offset = spacing * Vector((col, row, 0)) - grid_center
+            # offset = self.get_phyllotaxis_offset(i+1, spacing=addon_prefs.pair_spacing_distance)
+            print(f"Processing pair: {pair.lowpoly} with offset: {offset}")
+            average_pos = Vector((0, 0, 0))
+            avg_cnt = 0
+
+            def add_avg_safe(obj):
+                obj_mw = obj.evaluated_get(deps).matrix_world
+                nonlocal average_pos, avg_cnt
+                average_pos += obj_mw.translation
+                avg_cnt += 1
 
             low_obj = bpy.data.objects[pair.lowpoly]
 
+            add_avg_safe(low_obj)
             low_cp = low_obj.copy()
-            low_cp.matrix_world.translation += offset
+            clear_parent(low_cp)  # clear parent to avoid issues with parenting
+
+            # low_cp.matrix_world.translation += offset
             lowpoly_objs.append(low_cp)  # To merge them later
             temp_scn.collection.objects.link(low_cp)  # unlink all other lowpoly objects
 
@@ -521,7 +541,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 temp_cage = cage.copy()
                 temp_cage.data = temp_cage.data.copy() # to not affect original cage object
                 temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
-                temp_cage.matrix_world.translation += offset
+                # temp_cage.matrix_world.translation += offset
             else:
                 # Create temporary cage by displacing vertices along normals
                 temp_cage = low_cp.copy()
@@ -537,13 +557,18 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             cage_objs.append(temp_cage)
 
 
+            hi_objs = []
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
                 for obj in hi_collection.objects:
                     cp = obj.copy()
+                    add_avg_safe(cp)
+                    clear_parent(cp)  # clear parent to avoid issues with parenting
                     cp['tmp'] = True  # mark as tmp, so it can be deleted later
                     out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                    cp.matrix_world.translation += offset  # move to offset position
+                    hi_objs.append(cp)
+
+                    # cp.matrix_world.translation += offset  # move to offset position
 
                     # old 'manual' way > handled by Real Instances in gn
                     # if obj.type in ('CURVE', 'CURVES', 'FONT'):
@@ -561,9 +586,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             else:  # pair.hp_type == "OBJ"
                 hi_poly_obj = bpy.data.objects[pair.highpoly]
                 cp = hi_poly_obj.copy()
+                add_avg_safe(cp)
+                clear_parent(cp)  # clear parent to avoid issues with parenting
                 cp['tmp'] = True  # mark as tmp, so it can be deleted later
+                hi_objs.append(cp)
                 out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                cp.matrix_world.translation += offset  # move to offset position
+                # cp.matrix_world.translation += offset  # move to offset position
 
                 # old 'manual' way > handled by Real Instances in gn
                 # if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
@@ -577,6 +605,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 #     cp.matrix_world.translation += offset
                 #     cp['tmp'] = True  # mark as tmp, so it can be deleted later
                 #     out_hi_collection.objects.link(cp)
+
+            average_pos /= avg_cnt  # calculate average position of all objects in pair
+            print(f"Average position for pair {pair.lowpoly}: {average_pos}\n")
+            # apply -average position to center objs, then add offset
+            for obj in [low_cp, temp_cage] + hi_objs:
+                obj.matrix_world.translation += offset - average_pos
 
         # create temp helper obj with no geometry, for geo nodes mod
         tmp_mesh = bpy.data.meshes.new("Tmp_MD_TMP")
