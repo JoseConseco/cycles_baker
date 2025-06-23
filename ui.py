@@ -206,8 +206,10 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     rem.job_index = job_i
 
                     if sub_panel:
+                        split = sub_panel.split(factor=0.05, align=True)
+                        split.separator()
                         sub_panel.enabled = bakepass.activated
-                        col = sub_panel.column(align=True)
+                        col = split.column(align=True)
                         # box = row.box().column(align=True)
 
                         for prop_name, config in bakepass.props().items():
