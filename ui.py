@@ -395,6 +395,7 @@ class CB_OT_SDAddPassOp(bpy.types.Operator):
     def execute(self, context):
         # addonPref = get_addon_preferences()
         newpass = context.scene.cycles_baker_settings.bake_job_queue[self.job_index].bake_pass_list.add()
+        newpass.pass_type = self.pass_type
         return {'FINISHED'}
 
 
