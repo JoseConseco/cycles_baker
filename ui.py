@@ -75,7 +75,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
             layout.operator("cycles.cleanup_cycles_bake", icon="TRASH")
         else:
             row = layout.row(align=True)
-            row.operator("cycles.bake", text='Bake', icon="RECORD_ON")
+            row.operator("cycles.bake", text='Bake', icon="FAKE_USER_ON")
             row.popover("CB_PT_PreferencesPopover", text="", icon='PREFERENCES')
 
         layout.separator()
@@ -119,7 +119,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                     icon = "CHECKBOX_HLT" if pair.activated else "CHECKBOX_DEHLT"
                     sub_header.prop(pair, 'activated',text=f"PAIR: {low_name} - {high_name}", icon=icon, emboss=False)
-                    sub_header.operator("cycles.bake", text='', icon="RECORD_ON").bake_pair_index = pair_i
+                    sub_header.operator("cycles.bake", text='', icon="FAKE_USER_ON").bake_pair_index = pair_i
 
 
                     rem = sub_header.operator("cyclesbake.rem_pair", text="", icon="X")

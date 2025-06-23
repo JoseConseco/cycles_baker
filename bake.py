@@ -372,19 +372,15 @@ def ht_channel_mixing(context, bj):
         if not pass_img:
             continue  # skip if no image for this pass
         # imgPath = str(bj.get_out_dir_path() / f"{bakepass.get_filename(bj)}.png")
-        img_node = None
-        for node in node_tree.nodes:
-            if node.bl_idname == 'TextureMixInputTexture' and node.img == pass_img:
-                img_node = node
-                pass_img.preview_ensure()
 
-        if img_node is None:
+        img_node = node_tree.nodes.get(bpass.pass_type)
+        if not img_node:  # create new node if not found
             img_node = node_tree.nodes.new('TextureMixInputTexture')
             img_node.name = bpass.pass_type
-            pass_img.preview_ensure() # or else it will throw error - no:  img.preview.icon_id
-            img_node.img = pass_img  # also refreshes img...
-            img_node.location[1] = i * 200
-            img_node.width = 220
+        pass_img.preview_ensure() # or else it will throw error - no:  img.preview.icon_id
+        img_node.img = pass_img  # also refreshes img...
+        img_node.location[1] = i * 200
+        img_node.width = 220
 
         # bpy.data.images.remove(img)
     # outputImg.filepath_raw = bpy.path.abspath(bake_settings.hair_bake_path + "Hair_compo." + ext)
