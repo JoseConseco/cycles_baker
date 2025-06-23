@@ -91,9 +91,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
             if panel:
                 panel.prop(bj, 'name', text="Name")
+                panel.prop(bj, 'output', text="Path")
                 panel.prop(bj, 'bakeResolution', text="Resolution")
                 panel.prop(bj, 'antialiasing', text="AA")
-                panel.prop(bj, 'output', text="Path")
                 panel.prop(bj, 'use_channel_packing', icon='NODE_COMPOSITING')
 
                 split = panel.split(factor=0.70, align=True)
@@ -166,46 +166,48 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                     col.operator("cycles.bake", text='', icon="RECORD_ON").bake_pair_index = pair_i
 
-                addpair = panel.operator("cyclesbake.add_pair", icon="DISCLOSURE_TRI_RIGHT")
+                split = panel.split(factor=0.50, align=True)
+                split.separator()
+                addpair = split.operator("cyclesbake.add_pair", icon="ADD")
                 addpair.job_index = job_i
 
+                # pass_col = panel.column(align=True)
                 for pass_i, bakepass in enumerate(bj.bake_pass_list):
-                    row = panel.row(align=True)
-                    box = row.box().column(align=True)
+                    box = panel.box()
+                    sub_header, sub_panel = box.panel_prop(bakepass, "expand")
+                    sub_header.prop(bakepass, 'pass_type', text="")
 
-                    subrow = box.row(align=True)
-                    subrow.prop(bakepass, 'pass_type')
-
-                    for prop_name, config in bakepass.props().items():
-                        subrow = box.row(align=True)
-
-                        if config is None:
-                            subrow.prop(bakepass, prop_name)
-                        elif config["type"] == "prop_search":
-                            subrow.prop_search(bakepass, prop_name, bpy.data, config["search_data"])
-                        elif config["type"] == "toggle":
-                            subrow.prop(bakepass, prop_name, toggle=True)
-
-                    col = row.column()
-                    row = col.row()
-                    rem = row.operator("cyclesbake.rem_pass", text="", icon="X")
-                    rem.pass_index = pass_i
-                    rem.job_index = job_i
-
-                    row = col.row()
-                    icon = "RESTRICT_RENDER_OFF" if bakepass.activated else "RESTRICT_RENDER_ON"
-                    row.prop(bakepass, "activated", icon_only=True, icon=icon)
-
-                    # row for Preview button - with eye icon
                     if bakepass.pass_type in ( "AO_GN", "DEPTH", "CURVATURE"):
-                        row = col.row(align=True)
-                        op = row.operator("cycles.preview_pass", text="", icon="HIDE_OFF")
+                        op = sub_header.operator("cycles.preview_pass", text="", icon="HIDE_OFF")
                         op.pass_type = bakepass.pass_type
                         op.job_index = job_i
                         op.pass_index = pass_i
                         op.orig_scene_name = scene.name
 
-                addpass = panel.operator("cyclesbake.add_pass", icon="DISCLOSURE_TRI_RIGHT")
+                    icon = "RESTRICT_RENDER_OFF" if bakepass.activated else "RESTRICT_RENDER_ON"
+                    sub_header.prop(bakepass, "activated", icon_only=True, icon=icon)
+
+                    rem = sub_header.operator("cyclesbake.rem_pass", text="", icon="X")
+                    rem.pass_index = pass_i
+                    rem.job_index = job_i
+
+                    if sub_panel:
+                        col = sub_panel.column(align=True)
+                        # box = row.box().column(align=True)
+
+                        for prop_name, config in bakepass.props().items():
+                            subrow = col.row(align=True)
+                            if config is None:
+                                subrow.prop(bakepass, prop_name)
+                            elif config["type"] == "prop_search":
+                                subrow.prop_search(bakepass, prop_name, bpy.data, config["search_data"])
+                            elif config["type"] == "toggle":
+                                subrow.prop(bakepass, prop_name, toggle=True)
+                    # panel.separator()
+
+                split = panel.split(factor=0.50, align=True)
+                split.separator()
+                addpass = split.operator("cyclesbake.add_pass", icon="ADD")
                 addpass.job_index = job_i
 
                 panel.separator()

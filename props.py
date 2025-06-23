@@ -97,6 +97,7 @@ CURVATURE_PARAM_MAP = {
 
 class CyclesBakePass(bpy.types.PropertyGroup):
     activated: bpy.props.BoolProperty(name="Activated", default=True)
+    expand: bpy.props.BoolProperty(name="Expand", default=False)
 
     pass_type: bpy.props.EnumProperty(name="Pass",
                                       items=(
