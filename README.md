@@ -1,4 +1,6 @@
 Extension for Blender 4.4+ for baking pairs of high/low-poly objects.
+![CyclesBake](https://github.com/user-attachments/assets/7b58338c-1b76-46c9-b852-6323182fcf47)
+
 It supports baking:
  * Material (Diffuse),
  * Normal,
@@ -6,7 +8,6 @@ It supports baking:
  * Ambient Occlusion (and thickness),
  * Curvature,
  * Depth (not 100% accurate, but good enough for most cases - like scalp masks),
-![cycles_baker_ui](https://github.com/user-attachments/assets/d79ce21c-f018-43bb-8713-6871e539e6dc)
 
 Baking from various types of high-poly objects is supported:
  * Mesh,
