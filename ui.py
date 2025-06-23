@@ -28,7 +28,6 @@ from .utils import (
     addon_name_lowercase,
 )
 
-
 class CB_PT_SDPanel(bpy.types.Panel):
     bl_label = "Cycles Baker"
     bl_idname = "CB_PT_SDPanel"
@@ -105,10 +104,11 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     sub_r.enabled = False
                     sub_r.prop(bj, 'padding_size', text='')
 
+                # panel.label(text="Bake Pairs:")
                 for pair_i, pair in enumerate(bj.bake_pairs_list):
                     # row = panel.column(align=True).row(align=True)
-                    # box = panel.box().column(align=True)
-                    sub_header, sub_panel = panel.panel_prop(pair, "expand")
+                    box = panel.box().column(align=True)
+                    sub_header, sub_panel = box.panel_prop(pair, "expand")
                     low_is_selected = bpy.data.objects.get(pair.lowpoly) == active_obj
                     low_name = f"[{pair.lowpoly}]" if low_is_selected else pair.lowpoly
                     if pair.hp_type == 'OBJ':
@@ -118,7 +118,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         high_name = f"[{pair.highpoly}]" if bpy.data.collections.get(pair.highpoly) else pair.highpoly
 
                     icon = "CHECKBOX_HLT" if pair.activated else "CHECKBOX_DEHLT"
-                    sub_header.prop(pair, 'activated',text=f"PAIR: {low_name} - {high_name}", icon=icon, emboss=False)
+                    sub_header.prop(pair, 'activated',text=f"{low_name} - {high_name}", icon=icon, emboss=False)
                     sub_header.operator("cycles.bake", text='', icon="FAKE_USER_ON").bake_pair_index = pair_i
 
 
@@ -222,7 +222,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
 
                 split = panel.split(factor=0.50, align=True)
                 split.separator()
-                addpass = split.operator("cyclesbake.add_pass", icon="ADD")
+                # addpass = split.operator("cyclesbake.add_pass", icon="ADD")
+                # change above to menu enum
+                addpass = split.operator_menu_enum("cyclesbake.add_pass", "pass_type", icon="ADD")
                 addpass.job_index = job_i
 
                 panel.separator()
@@ -371,8 +373,22 @@ class CB_OT_SDRemPairOp(bpy.types.Operator):
 class CB_OT_SDAddPassOp(bpy.types.Operator):
     bl_idname = "cyclesbake.add_pass"
     bl_label = "Add Pass"
+    bl_description = "Add a new bake pass to the selected job"
+    bl_options = {'REGISTER', 'UNDO'}
 
     job_index: bpy.props.IntProperty()
+
+    pass_type: bpy.props.EnumProperty(name="Pass Type",
+                                      items=(
+                                      ("DIFFUSE", "Diffuse Color", ""),
+                                      ("AO", "Ambient Occlusion", ""),
+                                      ("AO_GN", "Ambient Occlusion (GeoNodes)", ""),
+                                      ("NORMAL", "Normal", ""),
+                                      ("OPACITY", "Opacity mask", ""),
+                                      ("DEPTH", "Depth (GeoNodes)", ""),
+                                      ("CURVATURE", "Curvature (GeoNodes)", "")),
+                                      default="DIFFUSE")
+
 
     def execute(self, context):
         # addonPref = get_addon_preferences()

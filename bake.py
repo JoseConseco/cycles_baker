@@ -401,7 +401,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     @classmethod
     def description(cls, context, properties):
         if properties.bake_pair_index > -1:
-            return "Bake ONLY selected pair: of highpoly-lowpoly objects"
+            return "Bake ONLY selected pair: of highpoly-lowpoly objects (then compose bake onto existing, previously baked textures)"
         else:
             return "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
 
