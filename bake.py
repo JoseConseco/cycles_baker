@@ -407,6 +407,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
     @staticmethod
     def get_set_first_material_slot(obj):
+        while len(obj.material_slots) > 1: # remove mat slots above 1 (there is risk low mesh parts with it wont be baked)
+            obj.data.materials.pop(index=-1)
+
+
         first_slot_mat = obj.material_slots[0].material if len(obj.material_slots) > 0 else None
         if first_slot_mat:
             first_slot_mat.use_nodes = True # be sure it has nodes for setting active img texture
