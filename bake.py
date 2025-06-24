@@ -668,7 +668,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         lowpoly_obj = tmp_scn.objects["LOWPOLY_MD_TMP"]
         select_obj(lowpoly_obj)
         tmp_scn.view_layers[0].objects.active = lowpoly_obj
-
         # XXX: restore  cage - in tmp scene setup
         # if pair.use_cage and pair.cage != "":
         #     cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
@@ -888,7 +887,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 wm.progress_update(current_step)
                 current_step += 1
                 self.report({'INFO'}, f"Baking {bakepass.pass_type} ({current_step}/{total_steps})")
-                render_target = bpy.data.images.new("MDtarget", width=img_res*aa, height=img_res*aa, alpha=True, float_buffer=False)
+                render_target = bpy.data.images.get("MDtarget")
+                if render_target:
+                    if render_target.size[0] != img_res*aa or render_target.size[1] != img_res*aa:
+                        render_target.scale(img_res*aa, img_res*aa)
+                else:
+                    render_target = bpy.data.images.new("MDtarget", width=img_res*aa, height=img_res*aa, alpha=True, float_buffer=False)
                 bg =  BG_color[bakepass.pass_type]
                 if self.bake_pair_index != -1: # set alpha to 0 for single pair bake
                     bg[3] = 0.0
@@ -932,7 +936,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 render_target.save()
 
                 # render_target.user_clear()
-                bpy.data.images.remove(render_target)
+                bpy.data.images.remove(render_target, do_unlink=True)
 
                 # if path.isfile(imgPath):  # load bake from disk
                 img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
