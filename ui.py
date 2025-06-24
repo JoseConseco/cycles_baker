@@ -640,7 +640,7 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                 imgNormalNode.name = bakepass.get_pass_suffix()
                 imgNormalNode.label = bakepass.get_pass_suffix()
                 imgNormalNode.image = bakeImg
-                imgNormalNode.location = 800, y_pos
+                imgNormalNode.location = offset_x, y_pos
 
         return {'FINISHED'}
 
