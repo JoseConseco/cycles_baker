@@ -183,7 +183,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                            items=(("0", "Smooth", ""),
                                                   ("1", "Sharp", "")),
                                            default="0", update=update_gn_modifier)
-    curvature_contrast: bpy.props.FloatProperty(name="Contrast", description="", default=1.0, min=0.01, soft_max=0.1, subtype='FACTOR', update=update_gn_modifier)
+    curvature_contrast: bpy.props.FloatProperty(name="Contrast", description="", default=1.0, min=0.01, soft_max=1.0, subtype='FACTOR', update=update_gn_modifier)
     curvature_brightness: bpy.props.FloatProperty(name="Brightness", description="", default=0.0, min=-1.0, max=1.0, subtype='FACTOR', update=update_gn_modifier)
     curvature_blur: bpy.props.IntProperty(name="Blur", description="", default=3, min=0, soft_max=16, update=update_gn_modifier)
 

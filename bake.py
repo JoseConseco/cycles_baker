@@ -406,31 +406,54 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             return "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
 
     @staticmethod
-    def get_set_first_material_slot(obj):
-        while len(obj.material_slots) > 1: # remove mat slots above 1 (there is risk low mesh parts with it wont be baked)
+    def get_set_first_material_slot(obj, mat=None):
+        """Get or set the first material slot for an object.
+
+        Args:
+            obj: The object to process
+            mat: Optional material to assign to first slot. If None, returns existing or creates new.
+
+        Returns:
+            The material in the first slot
+        """
+        while len(obj.material_slots) > 1:  # remove mat slots above 1 (there is risk low mesh parts with it won't be baked)
             obj.data.materials.pop(index=-1)
 
+        # Create slot if needed
+        if len(obj.material_slots) == 0:
+            obj.data.materials.append(None)
 
-        first_slot_mat = obj.material_slots[0].material if len(obj.material_slots) > 0 else None
+        if mat:  # If material specified, assign it
+            obj.material_slots[0].material = mat
+            mat.use_nodes = True
+            return mat
+
+        # Otherwise handle existing or create new
+        first_slot_mat = obj.material_slots[0].material
         if first_slot_mat:
-            first_slot_mat.use_nodes = True # be sure it has nodes for setting active img texture
+            first_slot_mat.use_nodes = True
             return first_slot_mat
+
+        # Create new material if needed
         low_bake_mat = bpy.data.materials.get("CyclesBakeMat_MD_TEMP")
         if low_bake_mat is None:
             low_bake_mat = bpy.data.materials.new(name="CyclesBakeMat_MD_TEMP")
-            # low_bake_mat.diffuse_color = (0.609125, 0.0349034, 0.8, 1.0)
         low_bake_mat.use_nodes = True
-        # If no material slots exist, create one
-        if len(obj.material_slots) == 0:
-            obj.data.materials.append(None)
-        # Assign bake material to first slot
+
         obj.material_slots[0].material = low_bake_mat
         return low_bake_mat
 
     @staticmethod
     def create_bake_mat_and_node():
-        low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
-        bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(low_obj)
+        # both low and proxy low should have the same bake material
+        proxy_low = bpy.data.objects.get("LowProxy_MD_TMP")
+        low_collection = bpy.data.collections.get("LOWPOLY_MD_TMP")
+        first_low = low_collection.objects[0]
+        bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(first_low)
+
+        # assign first_mat to proxy tol
+        CB_OT_CyclesBakeOps.get_set_first_material_slot(proxy_low, bake_mat)
+
         imgnode = bake_mat.node_tree.nodes.get('MDtarget')
         if not imgnode:
             imgnode = bake_mat.node_tree.nodes.new(type="ShaderNodeTexImage")
@@ -475,167 +498,125 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         theta = index * golden_angle
         return Vector(( r * math.cos(theta), r * math.sin(theta), 0))
 
+
     def scene_copy(self, context, bj):
-        orig_world = context.scene.world
+        """Create temporary scene with proxy objects for baking.
 
+        Args:
+            context: Blender context
+            bj: Bake job containing pairs to process
+        """
+        # Scene setup
         temp_scn = bpy.data.scenes.new("MD_TEMP")
-        context.window.scene = temp_scn  # set new scene as active
+        temp_scn.world = context.scene.world
+        context.window.scene = temp_scn
+
+        # Configure render settings
         temp_scn.render.engine = "CYCLES"
-        temp_scn.cycles.samples = 1 # main thing that affects bake speed..?
-        temp_scn.cycles.use_adaptive_sampling = False
-        temp_scn.cycles.device = 'GPU' if context.preferences.addons['cycles'].preferences.compute_device_type == 'CUDA' else 'CPU'
-        temp_scn.cycles.sampling_pattern = 'BLUE_NOISE'
-        temp_scn.cycles.max_bounces = 4
-        temp_scn.cycles.caustics_reflective = False
-        temp_scn.cycles.caustics_refractive = False
-        temp_scn.cycles.transmission_bounces = 2
-        temp_scn.cycles.transparent_max_bounces = 2
+        cycles = temp_scn.cycles
+        cycles.samples = 1
+        cycles.use_adaptive_sampling = False
+        cycles.device = 'GPU' if context.preferences.addons['cycles'].preferences.compute_device_type == 'CUDA' else 'CPU'
+        cycles.sampling_pattern = 'BLUE_NOISE'
+        cycles.max_bounces = 4
+        cycles.caustics_reflective = cycles.caustics_refractive = False
+        cycles.transmission_bounces = cycles.transparent_max_bounces = 2
 
-        temp_scn.world = orig_world  # copy world to temp scene
+        # Create collections once
+        collections = {
+            'high': bpy.data.collections.new('HIGHPOLY_MD_TMP'),
+            'low': bpy.data.collections.new('LOWPOLY_MD_TMP'),
+            'cage': bpy.data.collections.new('CAGE_MD_TMP')
+        }
 
-        # depsgraph = context.evaluated_depsgraph_get()
-        context.view_layer.update()  # update depsgraph to get all objects evaluated
+        for coll in collections.values():
+            temp_scn.collection.children.link(coll)
 
-        cage_objs = []  # List to store cage objects
-        lowpoly_objs = []
-        out_hi_collection = bpy.data.collections.new('HIGHPOLY_MD_TMP')  # collection for highpoly objects
-        temp_scn.collection.children.link(out_hi_collection)  # link highpoly collection to temp scene collection
-
+        # Get active pairs
         if self.bake_pair_index > -1 and self.bake_pair_index < len(bj.bake_pairs_list):
             active_pairs = [bj.bake_pairs_list[self.bake_pair_index]]
         else:
             active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]  # get only activated pairs
 
-
-        addon_prefs = get_addon_preferences()
-        spacing = addon_prefs.pair_spacing_distance
-
-        deps = context.evaluated_depsgraph_get() # fix for b. 4.2 - where obj.matrix_world is messed up on operator redo. Thus use eval_obj.matrix_world
-
-        square_cnt = math.ceil(len(active_pairs)**0.5)  # calculate grid size based on number of pairs
+        # Calculate grid layout
+        spacing = get_addon_preferences().pair_spacing_distance
+        square_cnt = math.ceil(len(active_pairs)**0.5)
         grid_center = (square_cnt - 1) * spacing * Vector((0.5, 0.5, 0))
+        deps = context.evaluated_depsgraph_get()
+
+        def create_copy(obj, collection, copy_data=False):
+            """Helper to create and setup object copy."""
+            cp = obj.copy()
+            if copy_data and obj.data:
+                cp.data = obj.data.copy()
+            cp['tmp'] = True
+            clear_parent(cp)
+            collection.objects.link(cp)
+            return cp
+
+        # Process each pair
         for i, pair in enumerate(active_pairs):
-            row = i // square_cnt
-            col = i % square_cnt
-            offset = spacing * Vector((col, row, 0)) - grid_center
-            # offset = self.get_phyllotaxis_offset(i+1, spacing=addon_prefs.pair_spacing_distance)
-            print(f"Processing pair: {pair.lowpoly} with offset: {offset}")
-            average_pos = Vector((0, 0, 0))
-            avg_cnt = 0
+            # Calculate offset
+            offset = spacing * Vector((i % square_cnt, i // square_cnt, 0)) - grid_center
 
-            def add_avg_safe(obj):
-                obj_mw = obj.evaluated_get(deps).matrix_world
-                nonlocal average_pos, avg_cnt
-                average_pos += obj_mw.translation
-                avg_cnt += 1
+            # Track average position
+            positions = []
 
+            # Process lowpoly
             low_obj = bpy.data.objects[pair.lowpoly]
+            low_cp = create_copy(low_obj, collections['low'])
+            positions.append(low_obj.evaluated_get(deps).matrix_world.translation)
 
-            add_avg_safe(low_obj)
-            low_cp = low_obj.copy()
-            clear_parent(low_cp)  # clear parent to avoid issues with parenting
-
-            # low_cp.matrix_world.translation += offset
-            lowpoly_objs.append(low_cp)  # To merge them later
-            temp_scn.collection.objects.link(low_cp)  # unlink all other lowpoly objects
-
-            cage = bpy.data.objects.get(pair.cage, None)
-            if pair.use_cage and cage:
-                # Copy existing cage object
-                temp_cage = cage.copy()
-                temp_cage.data = temp_cage.data.copy() # to not affect original cage object
-                temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
-                # temp_cage.matrix_world.translation += offset
+            # Process cage
+            if pair.use_cage and (cage := bpy.data.objects.get(pair.cage)):
+                temp_cage = create_copy(cage, collections['cage'], copy_data=True)
             else:
-                # Create temporary cage by displacing vertices along normals
-                temp_cage = low_cp.copy()
-                temp_cage.data = low_cp.data.copy()  # copy mesh data to not affect original
-                temp_cage['tmp'] = True  # mark as tmp, so it can be deleted later
+                temp_cage = create_copy(low_cp, collections['cage'], copy_data=True)
                 temp_cage.name = f"TEMP_CAGE_{low_cp.name}"
-                dist = get_raycast_distance(bj, pair)
-                displace_mod = add_split_extrude_mod(temp_cage, dist)
+                add_split_extrude_mod(temp_cage, get_raycast_distance(bj, pair))
 
-            temp_scn.collection.objects.link(temp_cage)
-            with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
-                bpy.ops.object.convert(target='MESH')
-            cage_objs.append(temp_cage)
+            # Convert cage to mesh
+            # with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
+            #     bpy.ops.object.convert(target='MESH')
 
+            # Create highpoly subcollection
+            hi_subcoll = bpy.data.collections.new(f'HIGH{i+1}_TMP')
+            hi_subcoll['tmp'] = True
+            collections['high'].children.link(hi_subcoll)
+
+            # Process highpoly objects
+            source = (bpy.data.collections[pair.highpoly].objects
+                     if pair.hp_type == "GROUP"
+                     else [bpy.data.objects[pair.highpoly]])
 
             hi_objs = []
-            if pair.hp_type == "GROUP":
-                hi_collection = bpy.data.collections.get(pair.highpoly)
-                for obj in hi_collection.objects:
-                    cp = obj.copy()
-                    add_avg_safe(cp)
-                    clear_parent(cp)  # clear parent to avoid issues with parenting
-                    cp['tmp'] = True  # mark as tmp, so it can be deleted later
-                    out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                    hi_objs.append(cp)
-
-                    # cp.matrix_world.translation += offset  # move to offset position
-
-                    # old 'manual' way > handled by Real Instances in gn
-                    # if obj.type in ('CURVE', 'CURVES', 'FONT'):
-                    #     hi_obj = self.obj_to_mesh(context, obj, out_hi_collection)
-                    #     hi_obj.matrix_world.translation += offset
-                    # elif obj.type == 'EMPTY' and obj.instance_collection:
-                    #     root_empty = self.make_inst_real(context, obj, out_hi_collection)
-                    #     root_empty.matrix_world.translation += offset
-                    # else:
-                    #     cp = obj.copy()
-                    #     cp.matrix_world.translation += offset
-                    #     cp['tmp'] = True  # mark as tmp, so it can be deleted later
-                    #     out_hi_collection.objects.link(cp)
-
-            else:  # pair.hp_type == "OBJ"
-                hi_poly_obj = bpy.data.objects[pair.highpoly]
-                cp = hi_poly_obj.copy()
-                add_avg_safe(cp)
-                clear_parent(cp)  # clear parent to avoid issues with parenting
-                cp['tmp'] = True  # mark as tmp, so it can be deleted later
+            for obj in source:
+                cp = create_copy(obj, hi_subcoll)
                 hi_objs.append(cp)
-                out_hi_collection.objects.link(cp)  # link all objects from hipoly group to highpoly collection
-                # cp.matrix_world.translation += offset  # move to offset position
+                positions.append(obj.evaluated_get(deps).matrix_world.translation)
 
-                # old 'manual' way > handled by Real Instances in gn
-                # if hi_poly_obj.type == 'EMPTY' and hi_poly_obj.instance_collection:
-                #     root_empty = self.make_inst_real(context, hi_poly_obj, out_hi_collection)
-                #     root_empty.matrix_world.translation += offset
-                # elif hi_poly_obj.type in ('CURVE', 'CURVES', 'FONT'):
-                #     hi_obj = self.obj_to_mesh(context, hi_poly_obj, out_hi_collection)
-                #     hi_obj.matrix_world.translation += offset
-                # else:
-                #     cp = hi_poly_obj.copy()
-                #     cp.matrix_world.translation += offset
-                #     cp['tmp'] = True  # mark as tmp, so it can be deleted later
-                #     out_hi_collection.objects.link(cp)
-
-            average_pos /= avg_cnt  # calculate average position of all objects in pair
-            print(f"Average position for pair {pair.lowpoly}: {average_pos}\n")
-            # apply -average position to center objs, then add offset
+            # Apply offset from average position
+            avg_pos = sum(positions, Vector((0,0,0))) / len(positions)
+            translation = offset - avg_pos
             for obj in [low_cp, temp_cage] + hi_objs:
-                obj.matrix_world.translation += offset - average_pos
+                obj.matrix_world.translation += translation
 
-        # create temp helper obj with no geometry, for geo nodes mod
-        tmp_mesh = bpy.data.meshes.new("Tmp_MD_TMP")
-        high_proxy = bpy.data.objects.new("HighProxy_MD_TMP", tmp_mesh)
-        high_proxy['tmp'] = True  # mark as tmp, so it can be deleted later
-        temp_scn.collection.objects.link(high_proxy)
-        add_collection_to_mesh_mod(high_proxy, out_hi_collection)
+        # Create proxy objects for each collection
+        for name, collection in collections.items():
+            mesh = bpy.data.meshes.new(f"Tmp_{name}_MD_TMP")
+            if name == 'low':   # lowpoly has to have at least one quad - or else it will not bake
+                mesh.from_pydata([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [], [(0, 1, 2), (2, 3, 0)])
+                # and placeholder uvs
+                mesh.uv_layers.new(name="UVMap")
+            proxy = bpy.data.objects.new(f"{name.capitalize()}Proxy_MD_TMP", mesh)
+            proxy['tmp'] = True
+            temp_scn.collection.objects.link(proxy)
+            add_collection_to_mesh_mod(proxy, collection)
 
-        lowpoly_objs[0].data = lowpoly_objs[0].data.copy()
-        lowpoly_objs[0].name = "LOWPOLY_MD_TMP"
+            layer_collection = context.view_layer.layer_collection.children.get(collection.name)
+            layer_collection.hide_viewport = True  # This controls the 'eye' icon in the outliner
 
-        if len(lowpoly_objs) > 1:
-            with bpy.context.temp_override(selected_editable_objects=lowpoly_objs, active_object=lowpoly_objs[0], selected_objects=lowpoly_objs):
-                bpy.ops.object.join()
-
-        # Merge cage objects if they exist
-        if cage_objs:
-            cage_objs[0].name = "CAGE_MD_TMP"
-            if len(cage_objs) > 1:
-                with bpy.context.temp_override(selected_editable_objects=cage_objs, active_object=cage_objs[0], selected_objects=cage_objs):
-                    bpy.ops.object.join()
+        return temp_scn
 
 
     def select_hi_low(self, bj):
@@ -647,42 +628,27 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             obj.select_set(select)
 
         for obj in tmp_scn.objects:
-            obj.hide_viewport = False  # slow - since it unloads obj from memory, thus just reveal all
+            # obj.hide_viewport = False  # slow - since it unloads obj from memory, thus just reveal all
             select_obj(obj, False)
 
-        # make selections, ensure visibility
-        # for bakepass in bj.bake_pass_list:
-        #     if bakepass.environment_group != "":  # bake enviro objects too
-        #         if bakepass.environment_obj_vs_group == "GROUP": # XXX: add it
-        #             for obj in bpy.data.collections[bakepass.environment_group].objects:
-        #                 select_obj(obj)
-        #         else:
-        #             enviro_obj = tmp_scn.objects[bakepass.environment_group + "_MD_TMP"]
-        #             select_obj(enviro_obj)
+        # Select and show proxy objects
+        high_proxy = tmp_scn.objects["HighProxy_MD_TMP"]
+        low_proxy = tmp_scn.objects["LowProxy_MD_TMP"]
+        # cage_proxy = tmp_scn.objects["CageProxy_MD_TMP"]
 
-        # print("selected  enviro group " + pair.lowpoly)
+        select_obj(high_proxy)
+        select_obj(low_proxy)
+        tmp_scn.view_layers[0].objects.active = low_proxy
 
-        # high_coll = bpy.data.collections['HIGHPOLY_MD_TMP']
-        # for obj in high_coll.objects:
-        #     if obj.type == 'MESH':
-        #         select_obj(obj)
-        high_obj = tmp_scn.objects.get("HighProxy_MD_TMP")
-        select_obj(high_obj)
-
-        lowpoly_obj = tmp_scn.objects["LOWPOLY_MD_TMP"]
-        select_obj(lowpoly_obj)
-        tmp_scn.view_layers[0].objects.active = lowpoly_obj
-        # XXX: restore  cage - in tmp scene setup
-        # if pair.use_cage and pair.cage != "":
-        #     cage_obj = tmp_scn.objects[pair.cage + "_MD_TMP"]
-        #     select_obj(cage_obj)
 
     def bake_pair_pass(self, context, bake_job, bakepass):
         self.create_bake_mat_and_node()
         startTime = datetime.now()  # time debug
         scn = bpy.data.scenes["MD_TEMP"]
-        low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
-        high_obj = bpy.data.objects.get("HighProxy_MD_TMP")
+        low_proxy = scn.objects["LowProxy_MD_TMP"]
+        high_proxy = scn.objects["HighProxy_MD_TMP"]
+        cage_proxy = scn.objects["CageProxy_MD_TMP"]
+
         if bakepass.pass_type == "AO":
             scn.cycles.samples = bakepass.samples
             scn.world.light_settings.distance = bakepass.ao_distance
@@ -695,11 +661,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             pass_components = {'COLOR'}
         elif bakepass.pass_type in ("AO_GN", "DEPTH" , "CURVATURE"):
             if bakepass.pass_type == "CURVATURE":
-                set_curvature_mod(high_obj, bakepass)
+                set_curvature_mod(high_proxy, bakepass)
             elif bakepass.pass_type == "DEPTH":
-                set_depth_mod(high_obj, low_obj, bakepass)
+                set_depth_mod(high_proxy, low_proxy, bakepass)
             elif bakepass.pass_type == "AO_GN":
-                set_ao_mod(high_obj, bakepass)
+                set_ao_mod(high_proxy, bakepass)
             attrib_mat = import_attrib_bake_mat()
             context.view_layer.material_override = attrib_mat
             # print(f"Overriding material for {bakepass.pass_type} pass with {attrib_mat.name}")
@@ -731,12 +697,11 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             save_mode='INTERNAL',
                             use_clear=False,
                             use_cage=True,
-                            cage_object="CAGE_MD_TMP",
+                            cage_object=cage_proxy.name,
                             target='IMAGE_TEXTURES',
                             use_split_materials=False, use_automatic_name=False)
 
         print("Baking set " + bakepass.pass_type + "  time: " + str(datetime.now() - startTime))
-
         context.view_layer.material_override = None  # clear material override
 
     @staticmethod
@@ -752,18 +717,34 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
     @staticmethod
     def cleanup():
-        scn_tmp = bpy.data.scenes["MD_TEMP"]
-        for obj in scn_tmp.objects:
+        tmp_scn = bpy.data.scenes["MD_TEMP"]
+        if not tmp_scn:
+            return
+
+        # low_obj = bpy.data.objects.get("LowProxy_MD_TMP")
+        low_collection = bpy.data.collections.get("LOWPOLY_MD_TMP")
+        if low_collection:
+            low_obj = low_collection.objects[0] # first obj has to has proper mat
+            if low_obj:
+                bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(low_obj)
+                imgnode = bake_mat.node_tree.nodes.get('MDtarget')
+                if imgnode:
+                    bake_mat.node_tree.nodes.remove(imgnode)  # remove bake image node
+
+        for obj in tmp_scn.objects:
             if obj.get('tmp', False):
                 CB_OT_CyclesBakeOps.remove_object(obj)
 
-        low_obj = bpy.data.objects.get("LOWPOLY_MD_TMP")
-        if low_obj:
-            bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(low_obj)
-            imgnode = bake_mat.node_tree.nodes.get('MDtarget')
-            if imgnode:
-                bake_mat.node_tree.nodes.remove(imgnode)  # remove bake image node
-            CB_OT_CyclesBakeOps.remove_object(low_obj)  # remove lowpoly object
+
+        # Remove all collections marked as temporary
+        for coll in bpy.data.collections:
+            if coll.get('tmp', False):
+                bpy.data.collections.remove(coll, do_unlink=True)
+
+        # Remove main collections
+        for coll_name in ('HIGHPOLY_MD_TMP', 'LOWPOLY_MD_TMP', 'CAGE_MD_TMP'):
+            if coll := bpy.data.collections.get(coll_name):
+                bpy.data.collections.remove(coll, do_unlink=True)
 
         for node_group_name in node_groups_to_remove:
             node_group = bpy.data.node_groups.get(node_group_name)
@@ -778,8 +759,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if attrib_mat:
             bpy.data.materials.remove(attrib_mat, do_unlink=True)
 
-        bpy.data.collections.remove(bpy.data.collections["HIGHPOLY_MD_TMP"], do_unlink=True)  # remove highpoly collection
-        bpy.data.scenes.remove(scn_tmp)
+        bpy.data.scenes.remove(tmp_scn)
 
 
     def assign_pink_mat(self, obj):
@@ -988,13 +968,13 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     pass_type: bpy.props.EnumProperty(name="Pass Type",
-                                      items=[
-                                          ('CURVATURE', "Curvature", "Preview Curvature Pass"),
-                                          ('DEPTH', "Depth", "Preview Depth Pass"),
-                                          ('AO_GN', "AO (Geometry Nodes)", "Preview AO Pass with Geometry Nodes"),
-                                      ],
-                                      default='CURVATURE',
-                                      description="Type of pass to preview")
+                                     items=[
+                                         ('CURVATURE', "Curvature", "Preview Curvature Pass"),
+                                         ('DEPTH', "Depth", "Preview Depth Pass"),
+                                         ('AO_GN', "AO (Geometry Nodes)", "Preview AO Pass with Geometry Nodes"),
+                                     ],
+                                     default='CURVATURE',
+                                     description="Type of pass to preview")
     job_index: bpy.props.IntProperty(name="Bake Job Index", default=-1, description="Index of the bake job to preview")
     pass_index: bpy.props.IntProperty(name="Bake Pass Index", default=-1, description="Index of the bake pass to preview")
     orig_scene_name: bpy.props.StringProperty(name="Original Scene Name", default="", description="Name of the original scene before preview")
@@ -1008,93 +988,105 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
             return {'CANCELLED'}
 
         # Create temp scene
-        print("Creating preview \"MD_PREVIEW\" scene for pass: " + self.pass_type)
+        print(f"Creating preview \"MD_PREVIEW\" scene for pass: {self.pass_type}")
         temp_scn = bpy.data.scenes.new("MD_PREVIEW")
         context.window.scene = temp_scn
         temp_scn.render.engine = "CYCLES"
         temp_scn.cycles.device = 'GPU' if context.preferences.addons['cycles'].preferences.compute_device_type == 'CUDA' else 'CPU'
         temp_scn.world = context.scene.world
 
-        # Create collection for highpoly objects
-        out_hi_collection = bpy.data.collections.new('HIGHPOLY_PREVIEW')
-        temp_scn.collection.children.link(out_hi_collection)
+        # Create main collections
+        collections = {
+            'high': bpy.data.collections.new('HIGHPOLY_PREVIEW'),
+            'low': bpy.data.collections.new('LOWPOLY_PREVIEW'),
+            'cage': bpy.data.collections.new('CAGE_PREVIEW')
+        }
 
-        lowpoly_objs = []
-        # Copy highpoly objects from all active bake pairs
-        for pair in active_pairs:
+        for coll in collections.values():
+            coll['tmp'] = True
+            temp_scn.collection.children.link(coll)
+
+        def create_copy(obj, collection, copy_data=False):
+            """Helper to create and setup object copy."""
+            cp = obj.copy()
+            if copy_data and obj.data:
+                cp.data = cp.data.copy()
+            cp['tmp'] = True
+            clear_parent(cp)
+            collection.objects.link(cp)
+            return cp
+
+        # Process each pair
+        for i, pair in enumerate(active_pairs):
+            # Process lowpoly
             if self.pass_type == "DEPTH":
-                low_obj = bpy.data.objects.get(pair.lowpoly)
-                low_cp = low_obj.copy()
-                lowpoly_objs.append(low_cp)  # To merge them later
-                temp_scn.collection.objects.link(low_cp)  # link all lowpoly objects to temp scene
+                low_obj = bpy.data.objects[pair.lowpoly]
+                low_cp = create_copy(low_obj, collections['low'])
+
+            # Process highpoly
+            hi_subcoll = bpy.data.collections.new(f'HIGH{i+1}_PREVIEW')
+            hi_subcoll['tmp'] = True
+            collections['high'].children.link(hi_subcoll)
 
             if pair.hp_type == "GROUP":
                 hi_collection = bpy.data.collections.get(pair.highpoly)
                 for obj in hi_collection.objects:
-                    cp = obj.copy()
-                    # cp['tmp'] = True
-                    out_hi_collection.objects.link(cp)
+                    create_copy(obj, hi_subcoll)
             else:  # pair.hp_type == "OBJ"
                 hi_poly_obj = bpy.data.objects[pair.highpoly]
-                cp = hi_poly_obj.copy()
-                # cp['tmp'] = True
-                out_hi_collection.objects.link(cp)
+                create_copy(hi_poly_obj, hi_subcoll)
 
-        # Create proxy object with geometry nodes
-        tmp_mesh = bpy.data.meshes.get("Tmp_Preview")
-        if not tmp_mesh:
-            tmp_mesh = bpy.data.meshes.new("Tmp_Preview")
-        high_proxy = bpy.data.objects.new("HighProxy_Preview", tmp_mesh)
-        # high_proxy['tmp'] = True
-        temp_scn.collection.objects.link(high_proxy)
+        # Create proxy objects
+        for name, collection in collections.items():
+            mesh = bpy.data.meshes.new(f"Tmp_{name}_Preview")
+            if name == 'low' and self.pass_type == "DEPTH":
+                mesh.from_pydata([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [], [(0, 1, 2), (2, 3, 0)])
+                mesh.uv_layers.new(name="UVMap")
+            proxy = bpy.data.objects.new(f"{name.capitalize()}Proxy_Preview", mesh)
+            proxy['tmp'] = True
+            temp_scn.collection.objects.link(proxy)
+            add_collection_to_mesh_mod(proxy, collection)
 
-        # Add collection to mesh modifier
-        add_collection_to_mesh_mod(high_proxy, out_hi_collection)
+            layer_collection = context.view_layer.layer_collection.children.get(collection.name)
+            if layer_collection:
+                layer_collection.hide_viewport = True
 
-        # out_hi_collection.hide_viewport = True
-        layer_collection = context.view_layer.layer_collection.children.get('HIGHPOLY_PREVIEW')
-        layer_collection.hide_viewport = True  # This controls the 'eye' icon in the outliner
+        # Get proxy references
+        high_proxy = temp_scn.objects["HighProxy_Preview"]
+        low_proxy = temp_scn.objects.get("LowProxy_Preview")
 
         # Add pass-specific modifier and material override
         attrib_mat = import_attrib_bake_mat()
         context.view_layer.material_override = attrib_mat
-
-        if lowpoly_objs:
-            lowpoly_objs[0].name = "LowProxy_Preview"
-
-            if len(lowpoly_objs) > 1:
-                lowpoly_objs[0].data = lowpoly_objs[0].data.copy() # do not affect original lowpoly object
-                with bpy.context.temp_override(selected_editable_objects=lowpoly_objs, active_object=lowpoly_objs[0], selected_objects=lowpoly_objs):
-                    bpy.ops.object.join()
-            lowpoly_objs[0].display_type = 'BOUNDS'
-            lowpoly_objs[0].hide_viewport = True
 
         # Add specific pass modifier based on pass_type
         bake_pass = active_bj.bake_pass_list[self.pass_index]
         if self.pass_type == "CURVATURE":
             set_curvature_mod(high_proxy, bake_pass)
         elif self.pass_type == "DEPTH":
-            set_depth_mod(high_proxy, lowpoly_objs[0], bake_pass)
+            set_depth_mod(high_proxy, low_proxy, bake_pass)
         elif self.pass_type == "AO_GN":
             set_ao_mod(high_proxy, bake_pass)
 
-        # set areas[2].spaces[0].shading.type to Rendred, and preview only Color from diffuse pass
-
+        # Store old shading settings and set new ones
         global OLD_SHADING, OLD_RENDER_PASS
         OLD_SHADING = context.space_data.shading.type
         context.space_data.shading.type = 'RENDERED'
         OLD_RENDER_PASS = context.space_data.shading.render_pass
         context.space_data.shading.cycles.render_pass = 'DIFFUSE_COLOR'
 
+        # Store scene settings
         temp_scn['preview_bj_idx'] = self.job_index
         temp_scn['preview_pass_idx'] = self.pass_index
-        temp_scn['orig_scene_name'] = self.orig_scene_name  # store original scene name
+        temp_scn['orig_scene_name'] = self.orig_scene_name
 
-        temp_scn.view_settings.view_transform = 'Standard'  # set view transform to Standard
+        # Configure render settings
+        temp_scn.view_settings.view_transform = 'Standard'
         temp_scn.cycles.preview_samples = 1
         temp_scn.cycles.use_adaptive_sampling = False
 
         return {'FINISHED'}
+
 
 class CB_OT_ClosePreviewOps(bpy.types.Operator):
     bl_idname = "cycles.close_preview"
@@ -1104,35 +1096,46 @@ class CB_OT_ClosePreviewOps(bpy.types.Operator):
 
     def execute(self, context):
         preview_scene = bpy.data.scenes.get("MD_PREVIEW")
-        if preview_scene:
-            # Clear material override
-            context.view_layer.material_override = None
+        if not preview_scene:
+            return {'CANCELLED'}
 
-            # Remove temporary objects
-            for obj in preview_scene.objects:
-                bpy.data.objects.remove(obj)
+        # Clear material override
+        context.view_layer.material_override = None
 
-            # Remove collections
-            preview_collection = bpy.data.collections.get("HIGHPOLY_PREVIEW")
-            if preview_collection:
-                bpy.data.collections.remove(preview_collection, do_unlink=True)
+        # Remove all objects marked as temporary
+        for obj in preview_scene.objects:
+            if obj.get('tmp', False):
+                mesh = obj.data if obj.type == "MESH" else None
+                bpy.data.objects.remove(obj, do_unlink=True)
+                if mesh and mesh.users == 0:
+                    bpy.data.meshes.remove(mesh)
 
-            # Remove materials
-            attrib_mat = bpy.data.materials.get("CBaker_AttribMaterial")
-            if attrib_mat:
-                bpy.data.materials.remove(attrib_mat, do_unlink=True)
+        # Remove all collections marked as temporary
+        for coll in bpy.data.collections:
+            if coll.get('tmp', False):
+                bpy.data.collections.remove(coll, do_unlink=True)
 
-            for node_group_name in node_groups_to_remove:
-                node_group = bpy.data.node_groups.get(node_group_name)
-                if node_group:
-                    bpy.data.node_groups.remove(node_group)
+        # Remove main collections
+        for coll_name in ('HIGHPOLY_PREVIEW', 'LOWPOLY_PREVIEW', 'CAGE_PREVIEW'):
+            if coll := bpy.data.collections.get(coll_name):
+                bpy.data.collections.remove(coll, do_unlink=True)
 
-            # Remove preview scene
-            original_scene = bpy.data.scenes.get("Scene")
-            if original_scene:
-                context.window.scene = original_scene
-            bpy.data.scenes.remove(preview_scene)
+        # Remove materials
+        if attrib_mat := bpy.data.materials.get("CBaker_AttribMaterial"):
+            bpy.data.materials.remove(attrib_mat, do_unlink=True)
 
+        # Remove node groups
+        for node_group_name in node_groups_to_remove:
+            if node_group := bpy.data.node_groups.get(node_group_name):
+                bpy.data.node_groups.remove(node_group)
+
+        # Switch back to original scene
+        original_scene = bpy.data.scenes.get("Scene")
+        if original_scene:
+            context.window.scene = original_scene
+        bpy.data.scenes.remove(preview_scene)
+
+        # Restore shading settings
         context.space_data.shading.type = OLD_SHADING if OLD_SHADING else 'MATERIAL'
         context.space_data.shading.cycles.render_pass = OLD_RENDER_PASS if OLD_RENDER_PASS else 'DIFFUSE_COLOR'
 
