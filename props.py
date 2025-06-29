@@ -22,13 +22,25 @@
 import bpy
 from pathlib import Path
 from .utils import get_addon_preferences
-from .bake import draw_cage_handle, set_ao_mod, set_depth_mod, get_ao_mod, set_curvature_mod, get_depth_mod, get_curvature_mod,  ht_channel_mixing
+from .bake import (
+    draw_cage_handle,
+    disable_all_cages_drawing,
+    set_ao_mod,
+    set_depth_mod,
+    get_ao_mod,
+    set_curvature_mod,
+    get_depth_mod,
+    get_curvature_mod,
+    ht_channel_mixing,
+)
 
 
 class CyclesBakePair(bpy.types.PropertyGroup):
-
     def drawCage(self, context):
         draw_cage_handle(context, self)
+
+    def use_cage_update(self, context):
+        disable_all_cages_drawing(context)
 
     activated: bpy.props.BoolProperty( name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
     expand: bpy.props.BoolProperty(name="Expand", default=True)
@@ -40,7 +52,7 @@ class CyclesBakePair(bpy.types.PropertyGroup):
             ('GROUP', '', 'Group', 'GROUP', 1,),
         ]
     )
-    use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False)
+    use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False, update=use_cage_update)
     cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
     ray_dist: bpy.props.FloatProperty( name="Ray distance", description="", default=1.0, min=0, max=10, subtype='FACTOR')
     draw_front_dist: bpy.props.BoolProperty( name="Draw Front distance", description="Draw Front Distance Overlay", default=False, update=drawCage)

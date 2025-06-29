@@ -30,6 +30,7 @@ import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
 from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat, load_baked_images, clear_parent
+from bpy.app.handlers import persistent
 
 # CB_AOPass
 # Input_16 > {'name': 'Flip Normals', 'type': 'NodeSocketBool', 'default_value': False, 'description': 'Can be used for thickness map'}
@@ -986,6 +987,16 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 OLD_SHADING = None
 OLD_RENDER_PASS = None
 handleDrawRayDistance = []
+
+@persistent
+def disable_3d_cage_handler():
+    """Disable the 3D cage drawing handler if it exists."""
+    global handleDrawRayDistance
+    if handleDrawRayDistance:
+        for handle in handleDrawRayDistance:
+            bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
+        handleDrawRayDistance.clear()
+
 def draw_cage_handle(context, bake_pair):
     global handleDrawRayDistance
     if bake_pair.draw_front_dist:
@@ -995,19 +1006,12 @@ def draw_cage_handle(context, bake_pair):
                 if pair != bake_pair:
                     pair['draw_front_dist'] = False
 
-        if handleDrawRayDistance: # remove - so we can fire draw_cage_callback again with current pair
-            for handle in handleDrawRayDistance:
-                bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
-            handleDrawRayDistance.clear()
+        disable_3d_cage_handler()
 
         args = (bake_pair, context)  # u can pass arbitrary class as first param  Instead of (self, context)
         handleDrawRayDistance.append(bpy.types.SpaceView3D.draw_handler_add(draw_cage_callback, args, 'WINDOW', 'POST_VIEW'))
     else:
-
-        if handleDrawRayDistance:
-            for handle in handleDrawRayDistance:
-                bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
-            handleDrawRayDistance.clear()
+        disable_3d_cage_handler()
 
 def disable_all_cages_drawing(context):
     """Disable drawing of all cages in the scene."""

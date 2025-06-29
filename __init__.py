@@ -53,20 +53,33 @@ from . import auto_load
 auto_load.init()
 
 
-
 def register():
-    # bpy.utils.register_class(hair_workspace_tool.GiGroup)
     auto_load.register()
     print("Registered Cycles Baker")
 
     addon_prefs = utils.get_addon_preferences()
     addon_prefs.update_text = ''
 
-    ui.update_panel(None, bpy.context)
     props.register_props()
+    ui.update_panel(None, bpy.context)
 
+    bpy.app.handlers.load_pre.append(bake.disable_3d_cage_handler)
+    bpy.app.handlers.undo_pre.append(bake.disable_3d_cage_handler)
+    bpy.app.handlers.render_init.append(bake.disable_3d_cage_handler)
 
 def unregister():
+    # Remove handlers
+    for event_handler in [bpy.app.handlers.load_pre,
+                         bpy.app.handlers.undo_pre,
+                         bpy.app.handlers.render_init]:
+        try:
+            event_handler.remove(bake.disable_3d_cage_handler)
+        except ValueError:
+            pass
+
+    bake.disable_all_cages_drawing(bpy.context)
+    bake.disable_3d_cage_handler()
+
     auto_load.unregister()
     props.unregister_props()
     print("Unregistered Cycles Baker")

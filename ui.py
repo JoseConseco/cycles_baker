@@ -146,7 +146,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         subrow = col.row(align=True)
                         subrow.prop(pair, 'hp_type', expand=True)
                         if pair.hp_type == 'OBJ':
-                            ic = "SNAP_FACE" if high_is_selected else "OBJECT_DATA"
+                            ic = "STRIP_COLOR_03" if high_is_selected else "OBJECT_DATA"
                             subrow.prop_search(pair, "highpoly", scene, "objects", icon=ic)
                             oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                             oper.bj_i = job_i
