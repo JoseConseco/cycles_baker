@@ -30,7 +30,6 @@ import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
 from .utils import abs_file_path, get_addon_preferences, add_geonodes_mod, import_mat, load_baked_images, clear_parent
-from . import ui as globa_ui
 
 # CB_AOPass
 # Input_16 > {'name': 'Flip Normals', 'type': 'NodeSocketBool', 'default_value': False, 'description': 'Can be used for thickness map'}
@@ -123,10 +122,9 @@ def import_attrib_bake_mat():
     return bake_mat
 
 
-def get_raycast_distance(bj, pair):
-    low_poly = bpy.data.objects[pair.lowpoly]
+def get_raycast_distance(low_poly):
     objBBoxSize = 0.2*Vector(low_poly.dimensions[:]).length
-    return pair.ray_dist * objBBoxSize
+    return objBBoxSize
 
 AO_NODES = "CB_AOPass"
 DEPTH_NODES = "CB_DepthPass"
@@ -146,19 +144,20 @@ shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
 Verts = None
 Normals = None
 Indices = None
-def draw_cage_callback(self, context):
-    low_poly = bpy.data.objects.get( self.lowpoly )
-    if not self.draw_front_dist or not self.lowpoly or not low_poly:
+def draw_cage_callback(bake_pair, context):
+    low_poly = bpy.data.objects.get(bake_pair.lowpoly)
+    if not bake_pair.draw_front_dist or not bake_pair.lowpoly or not low_poly:
         return
     global Verts, Normals, Indices
     if low_poly.type == 'MESH' and context.mode == 'OBJECT':
-        for bj in bpy.data.scenes['Scene'].cycles_baker_settings.bake_job_queue:
-            for pair in bj.bake_pairs_list:
-                if pair == self:
-                    parentBakeJob = bj
-                    break
+        # for bj in context.scene.cycles_baker_settings.bake_job_queue:
+        #     for pair in bj.bake_pairs_list:
+        #         if pair == bake_pair:
+        #             parentBakeJob = bj
+        #             break
 
-        ray_dist = get_raycast_distance(parentBakeJob, self)
+        ray_dist = bake_pair.ray_dist * get_raycast_distance(low_poly)
+        print(f"Drawing cage for {bake_pair.lowpoly} with ray distance: {ray_dist}")
 
         mesh = low_poly.data
         vert_count = len(mesh.vertices)
@@ -184,7 +183,7 @@ def draw_cage_callback(self, context):
         gpu.state.blend_set('ALPHA')
         gpu.state.face_culling_set('BACK')
 
-        face_color = (0, 0.8, 0, 0.5) if self.draw_front_dist else (0.8, 0, 0, 0.5)
+        face_color = (0, 0.8, 0, 0.5) if bake_pair.draw_front_dist else (0.8, 0, 0, 0.5)
 
         with gpu.matrix.push_pop():
             gpu.matrix.multiply_matrix(low_poly.matrix_world)
@@ -573,7 +572,9 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             else:
                 temp_cage = create_copy(low_cp, collections['cage'], copy_data=True)
                 temp_cage.name = f"TEMP_CAGE_{low_cp.name}"
-                add_split_extrude_mod(temp_cage, get_raycast_distance(bj, pair))
+                ray_dist = pair.ray_dist * get_raycast_distance(low_obj)
+                print(f"Baking cage for {pair.lowpoly} with ray distance: {ray_dist}")
+                add_split_extrude_mod(temp_cage, ray_dist)
 
             # Convert cage to mesh
             # with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
@@ -615,6 +616,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
             layer_collection = context.view_layer.layer_collection.children.get(collection.name)
             layer_collection.hide_viewport = True  # This controls the 'eye' icon in the outliner
+        dupa
 
         return temp_scn
 
@@ -838,11 +840,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if self.is_empty_mat(context):
             return {'CANCELLED'}
 
-        wm = context.window_manager
+        disable_all_cages_drawing(context)  # disable all cages drawing before preview
 
         active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
 
         total_steps = sum(len([p for p in bj.bake_pass_list if p.activated]) for bj in active_bj)
+        wm = context.window_manager
         wm.progress_begin(0, total_steps)
         current_step = 0
         for bj in active_bj:
@@ -960,6 +963,36 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
 OLD_SHADING = None
 OLD_RENDER_PASS = None
+handleDrawRayDistance = []
+def draw_cage_handle(context, bake_pair):
+    global handleDrawRayDistance
+    if bake_pair.draw_front_dist:
+        # disable all other draw_front_dist
+        for bj in context.scene.cycles_baker_settings.bake_job_queue: # disable all draw_front_dist
+            for pair in bj.bake_pairs_list:
+                if pair != bake_pair:
+                    pair['draw_front_dist'] = False
+
+        if handleDrawRayDistance: # remove - so we can fire draw_cage_callback again with current pair
+            for handle in handleDrawRayDistance:
+                bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
+            handleDrawRayDistance.clear()
+
+        args = (bake_pair, context)  # u can pass arbitrary class as first param  Instead of (self, context)
+        handleDrawRayDistance.append(bpy.types.SpaceView3D.draw_handler_add(draw_cage_callback, args, 'WINDOW', 'POST_VIEW'))
+    else:
+
+        if handleDrawRayDistance:
+            for handle in handleDrawRayDistance:
+                bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
+            handleDrawRayDistance.clear()
+
+def disable_all_cages_drawing(context):
+    """Disable drawing of all cages in the scene."""
+    for bj in context.scene.cycles_baker_settings.bake_job_queue:
+        for pair in bj.bake_pairs_list:
+            pair.draw_front_dist = False  # this will disable cage drawing
+    context.view_layer.update()  # update view layer to apply changes
 
 class CB_OT_PreviewPassOps(bpy.types.Operator):
     bl_idname = "cycles.preview_pass"
@@ -986,6 +1019,8 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         if not active_pairs:
             self.report({'WARNING'}, "No active low/high-poly bake pairs found for preview.")
             return {'CANCELLED'}
+
+        disable_all_cages_drawing(context)  # disable all cages drawing before preview
 
         # Create temp scene
         print(f"Creating preview \"MD_PREVIEW\" scene for pass: {self.pass_type}")

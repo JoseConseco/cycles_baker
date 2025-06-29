@@ -22,34 +22,13 @@
 import bpy
 from pathlib import Path
 from .utils import get_addon_preferences
-from .bake import draw_cage_callback, set_ao_mod, set_depth_mod, get_ao_mod, set_curvature_mod, get_depth_mod, get_curvature_mod,  ht_channel_mixing
+from .bake import draw_cage_handle, set_ao_mod, set_depth_mod, get_ao_mod, set_curvature_mod, get_depth_mod, get_curvature_mod,  ht_channel_mixing
 
-handleDrawRayDistance = []
 
 class CyclesBakePair(bpy.types.PropertyGroup):
+
     def drawCage(self, context):
-
-        global handleDrawRayDistance
-        if self.draw_front_dist:
-            # disable all other draw_front_dist
-            for bj in context.scene.cycles_baker_settings.bake_job_queue: # disable all draw_front_dist
-                for pair in bj.bake_pairs_list:
-                    if pair != self:
-                        pair['draw_front_dist'] = False
-
-            if handleDrawRayDistance:
-                for handle in handleDrawRayDistance:
-                    bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
-                handleDrawRayDistance.clear()
-
-            args = (self, context)  # u can pass arbitrary class as first param  Instead of (self, context)
-            handleDrawRayDistance.append(bpy.types.SpaceView3D.draw_handler_add(draw_cage_callback, args, 'WINDOW', 'POST_VIEW'))
-        else:
-
-            if handleDrawRayDistance:
-                for handle in handleDrawRayDistance:
-                    bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
-                handleDrawRayDistance.clear()
+        draw_cage_handle(context, self)
 
     activated: bpy.props.BoolProperty( name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
     expand: bpy.props.BoolProperty(name="Expand", default=True)
