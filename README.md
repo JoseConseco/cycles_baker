@@ -1,4 +1,7 @@
 Extension for Blender 4.4+ for baking pairs of high/low-poly objects.
+[![Video Title](https://img.youtube.com/vi/yL7A8PiKmxM/maxresdefault.jpg)](https://youtu.be/yL7A8PiKmxM?si=XFBgZvNDXkmMT63f)
+
+
 
 ![CyclesBake](https://github.com/user-attachments/assets/7b58338c-1b76-46c9-b852-6323182fcf47)
 
