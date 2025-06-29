@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "CyclesBaker"
-version = "2.0.1"
+version = "2.0.2"
 name = "Cycles Baker"
 tagline = "UI for baking with Cycles."
 maintainer = "JoseConseco"
