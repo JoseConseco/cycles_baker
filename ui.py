@@ -440,11 +440,20 @@ class CB_OT_ObjectPicker(bpy.types.Operator):
     gr_obj: bpy.props.StringProperty()
 
     def execute(self, context):
-        if context.active_object and context.active_object.select_get():
-            if self.gr_obj == "group" and self.prop == "highpoly":
-                context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.users_collection[0].name
+        cycles_bake_settings = context.scene.cycles_baker_settings
+        bake_job = cycles_bake_settings.bake_job_queue[self.bj_i]
+        bake_pair = bake_job.bake_pairs_list[self.pair_i]
+        if self.prop == "highpoly":
+            if self.gr_obj == "group":
+                if context.collection:
+                    bake_pair[self.prop] = context.collection.name
             else:
-                context.scene.cycles_baker_settings.bake_job_queue[self.bj_i].bake_pairs_list[self.pair_i][self.prop] = context.active_object.name
+                if context.active_object and context.active_object.select_get():
+                    bake_pair[self.prop] = context.active_object.name
+        else: # lowpoly
+            if context.active_object and context.active_object.select_get():
+                bake_pair[self.prop] = context.active_object.name
+
         return {'FINISHED'}
 
 
