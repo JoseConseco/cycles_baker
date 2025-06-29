@@ -851,18 +851,24 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     def execute(self, context):
         TotalTime = datetime.now()
         cycles_bake_settings = context.scene.cycles_baker_settings
+        active_bjobs = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
+        if len(active_bjobs) == 0:
+            self.report({'ERROR'}, "No bake jobs defined. Please add bake job first.")
+            return {'CANCELLED'}
         if self.is_empty_mat(context):
             return {'CANCELLED'}
 
         disable_all_cages_drawing(context)  # disable all cages drawing before preview
 
-        active_bj = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
-
-        total_steps = sum(len([p for p in bj.bake_pass_list if p.activated]) for bj in active_bj)
+        total_steps = sum(len([p for p in bj.bake_pass_list if p.activated]) for bj in active_bjobs)
         wm = context.window_manager
         wm.progress_begin(0, total_steps)
         current_step = 0
-        for bj in active_bj:
+        for bj in active_bjobs:
+            if len(bj.bake_pairs_list) == 0:
+                self.report({'ERROR'}, "No bake pairs defined in job: " + bj.name + ". Please add bake pairs first.")
+                wm.progress_end()
+                continue
             # ensure save path exists
             if not os.path.exists(bpy.path.abspath(bj.output)):
                 os.makedirs(bpy.path.abspath(bj.output))
