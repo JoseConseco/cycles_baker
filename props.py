@@ -269,6 +269,7 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
     bake_pairs_list: bpy.props.CollectionProperty(type=CyclesBakePair)
     bake_pass_list: bpy.props.CollectionProperty(type=CyclesBakePass)
 
+
     def get_out_dir_path(self):
         return Path(bpy.path.abspath(self.output)).resolve()
 
@@ -276,6 +277,7 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
 
 class CyclesBakeSettings(bpy.types.PropertyGroup):
     bake_job_queue: bpy.props.CollectionProperty(type=CyclesBakeJob)
+    pair_spacing_distance: bpy.props.FloatProperty(name="Pair Spread Distance", description="Offset added between high-low pairs during bake, to prevent object pairs affecting each other (per scene option)", default=10.0, min=0.01, soft_max=100.0)
 
 
 def register_props():

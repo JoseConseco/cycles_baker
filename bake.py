@@ -521,6 +521,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             bj: Bake job containing pairs to process
         """
         # Scene setup
+        old_scene = context.scene
         temp_scn = bpy.data.scenes.new("MD_TEMP")
         temp_scn.world = context.scene.world
         context.window.scene = temp_scn
@@ -553,7 +554,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             active_pairs = [pair for pair in bj.bake_pairs_list if pair.activated]  # get only activated pairs
 
         # Calculate grid layout
-        spacing = get_addon_preferences().pair_spacing_distance
+        # spacing = get_addon_preferences().pair_spacing_distance
+        spacing = old_scene.cycles_baker_settings.pair_spacing_distance
         square_cnt = math.ceil(len(active_pairs)**0.5)
         grid_center = (square_cnt - 1) * spacing * Vector((0.5, 0.5, 0))
         deps = context.evaluated_depsgraph_get()

@@ -282,7 +282,7 @@ def draw_prefs(layout, self):
     box = layout.box()
     if self.tabs == "SETTINGS":
         col = box.column(align=True)
-        col.prop(self, "pair_spacing_distance")
+        col.prop(bpy.context.scene.cycles_baker_settings, "pair_spacing_distance")
         col.prop(self, "play_finish_sound", toggle=True)
         col.separator()
         col.label(text="Texture Suffixes:")
@@ -336,7 +336,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     update_exist: bpy.props.BoolProperty(name="Update Exist", description="There is new GroupPro update",  default=False)
     update_text: bpy.props.StringProperty(name="Update text",  default='')
 
-    pair_spacing_distance: bpy.props.FloatProperty(name="Pair Spread Distance", description="Offset added between high-low pairs during bake, to prevent object pairs affecting each other", default=10.0, min=0.01, soft_max=100.0)
+    # pair_spacing_distance: bpy.props.FloatProperty(name="Pair Spread Distance", description="Offset added between high-low pairs during bake, to prevent object pairs affecting each other", default=10.0, min=0.01, soft_max=100.0)
     play_finish_sound: bpy.props.BoolProperty(name="Play Finish Sound", description="Play sound when baking finished", default=True)
 
 
