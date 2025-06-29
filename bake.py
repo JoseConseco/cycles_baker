@@ -142,43 +142,53 @@ BG_color = {
 
 shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
 Verts = None
-Normals = None
+Loops = None
 Indices = None
+Loop_to_Vert_id = None
+Verts_co = None
+
 def draw_cage_callback(bake_pair, context):
     low_poly = bpy.data.objects.get(bake_pair.lowpoly)
     if not bake_pair.draw_front_dist or not bake_pair.lowpoly or not low_poly:
         return
-    global Verts, Normals, Indices
+    global Verts, Loops, Indices, Loop_to_Vert_id, Verts_co
     if low_poly.type == 'MESH' and context.mode == 'OBJECT':
-        # for bj in context.scene.cycles_baker_settings.bake_job_queue:
-        #     for pair in bj.bake_pairs_list:
-        #         if pair == bake_pair:
-        #             parentBakeJob = bj
-        #             break
-
         ray_dist = bake_pair.ray_dist * get_raycast_distance(low_poly)
-        print(f"Drawing cage for {bake_pair.lowpoly} with ray distance: {ray_dist}")
 
-        mesh = low_poly.data
-        vert_count = len(mesh.vertices)
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        obj_eval = low_poly.evaluated_get(depsgraph)
+        mesh = obj_eval.to_mesh()
+
         mesh.calc_loop_triangles()
+        loop_count = len(mesh.loops)
+        tri_count = len(mesh.loop_triangles)
 
-        # mat_np = np.array(low_poly.matrix_world, 'f')
-        if Verts is None or Verts.shape[0] != vert_count:
-            Vertices = np.empty((vert_count, 3), 'f')
-            Normals = np.empty((vert_count, 3), 'f')
-            Indices = np.empty((len(mesh.loop_triangles), 3), 'i')
+        # Reallocate arrays if mesh changed
+        if Loops is None or Loops.shape[0] != loop_count:
+            Loops = np.empty((loop_count, 3), 'f')  # Normal per loop
+            Verts = np.empty((loop_count, 3), 'f')  # One vertex per loop
+            Verts_co = np.empty((loop_count, 3), 'f')  # One vertex per loop
+            Indices = np.empty((tri_count, 3), 'i')
+            Loop_to_Vert_id = np.empty(loop_count, dtype=np.int32)
+        #
+        # # Get vertex positions for each loop
+        # for i, loop in enumerate(mesh.loops):
+        #     Verts[i] = mesh.vertices[loop.vertex_index].co
+        #     Loops[i] = mesh.corner_normals[i].vector  # Use corner_normals instead of loop.normal
+        #
+        # # Get triangle indices (need to remap to loop indices)
+        # for i, tri in enumerate(mesh.loop_triangles):
+        #     Indices[i] = tri.loops
 
-        mesh.vertices.foreach_get( "co", Vertices.ravel())
-        mesh.vertices.foreach_get("normal", Normals.ravel())
-        mesh.loop_triangles.foreach_get( "vertices", Indices.ravel())
+        mesh.loops.foreach_get('vertex_index', Loop_to_Vert_id)
+        mesh.corner_normals.foreach_get('vector', Loops.ravel())
+        mesh.vertices.foreach_get('co', Verts_co.ravel())
+        mesh.loop_triangles.foreach_get('loops', Indices.ravel()) # triangle loops indices
 
-        Vertices = Vertices + Normals * ray_dist  # 0,86 to match substance ray distance
+        Verts = Verts_co[Loop_to_Vert_id] # loop will point to vertex co
 
-        # old way to transform vertices with matrix
-        # coords_4d = np.ones((vert_count, 4), 'f')
-        # coords_4d[:, :-1] = Vertices
-        # vertices = np.einsum('ij,aj->ai', mat_np, coords_4d)[:, :-1]
+        # Extrude along split normals
+        Verts = Verts + Loops * ray_dist
 
         gpu.state.blend_set('ALPHA')
         gpu.state.face_culling_set('BACK')
@@ -189,12 +199,17 @@ def draw_cage_callback(bake_pair, context):
             gpu.matrix.multiply_matrix(low_poly.matrix_world)
             shader_uniform.bind()
             shader_uniform.uniform_float("color", face_color)
-            batch = batch_for_shader(shader_uniform, 'TRIS', {"pos": Vertices}, indices=Indices)
+            batch = batch_for_shader(shader_uniform, 'TRIS', {"pos": Verts}, indices=Indices)
             batch.draw(shader_uniform)
 
         # restore gpu defaults
         gpu.state.blend_set('NONE')
         gpu.state.face_culling_set('NONE')
+
+        # old way to transform vertices with matrix
+        # coords_4d = np.ones((vert_count, 4), 'f')
+        # coords_4d[:, :-1] = Vertices
+        # vertices = np.einsum('ij,aj->ai', mat_np, coords_4d)[:, :-1]
 
 
 # Process baked texture - add padding, to it
@@ -573,7 +588,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 temp_cage = create_copy(low_cp, collections['cage'], copy_data=True)
                 temp_cage.name = f"TEMP_CAGE_{low_cp.name}"
                 ray_dist = pair.ray_dist * get_raycast_distance(low_obj)
-                print(f"Baking cage for {pair.lowpoly} with ray distance: {ray_dist}")
+                # print(f"Baking cage for {pair.lowpoly} with ray distance: {ray_dist}")
                 add_split_extrude_mod(temp_cage, ray_dist)
 
             # Convert cage to mesh
@@ -616,7 +631,6 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
             layer_collection = context.view_layer.layer_collection.children.get(collection.name)
             layer_collection.hide_viewport = True  # This controls the 'eye' icon in the outliner
-        dupa
 
         return temp_scn
 
