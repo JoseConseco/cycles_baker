@@ -1054,7 +1054,7 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         collections = {
             'high': bpy.data.collections.new('HIGHPOLY_PREVIEW'),
             'low': bpy.data.collections.new('LOWPOLY_PREVIEW'),
-            'cage': bpy.data.collections.new('CAGE_PREVIEW')
+            # 'cage': bpy.data.collections.new('CAGE_PREVIEW')
         }
 
         for coll in collections.values():
@@ -1076,7 +1076,9 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
             # Process lowpoly
             if self.pass_type == "DEPTH":
                 low_obj = bpy.data.objects[pair.lowpoly]
-                low_cp = create_copy(low_obj, collections['low'])
+                # low_cp = create_copy(low_obj, collections['low'])
+                collections['low'].objects.link(low_obj)
+
 
             # Process highpoly
             hi_subcoll = bpy.data.collections.new(f'HIGH{i+1}_PREVIEW')
@@ -1109,6 +1111,8 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         # Get proxy references
         high_proxy = temp_scn.objects["HighProxy_Preview"]
         low_proxy = temp_scn.objects.get("LowProxy_Preview")
+        low_proxy.hide_viewport = True
+
 
         # Add pass-specific modifier and material override
         attrib_mat = import_attrib_bake_mat()
