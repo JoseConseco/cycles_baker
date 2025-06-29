@@ -1,9 +1,7 @@
 Extension for Blender 4.4+ for baking pairs of high/low-poly objects.
-[![Video Title](https://img.youtube.com/vi/yL7A8PiKmxM/maxresdefault.jpg)](https://youtu.be/yL7A8PiKmxM?si=XFBgZvNDXkmMT63f)
 
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/yL7A8PiKmxM/0.jpg)](https://www.youtube.com/watch?v=yL7A8PiKmxM)
 
-
-![CyclesBake](https://github.com/user-attachments/assets/7b58338c-1b76-46c9-b852-6323182fcf47)
 
 It supports baking:
  * Material (Diffuse),
@@ -13,6 +11,8 @@ It supports baking:
  * Curvature,
  * Depth (not 100% accurate, but good enough for most cases - like scalp masks),
 
+   
+![CyclesBake](https://github.com/user-attachments/assets/7b58338c-1b76-46c9-b852-6323182fcf47)
 Baking from various types of high-poly objects is supported:
  * Mesh,
  * [Hair](https://bartoszstyperek.gumroad.com/l/hairtool),
