@@ -114,8 +114,9 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     if pair.hp_type == 'OBJ':
                         high_is_selected = bpy.data.objects.get(pair.highpoly) == active_obj
                         high_name = f"[{pair.highpoly}]" if high_is_selected else pair.highpoly
-                    else:
-                        high_name = f"[{pair.highpoly}]" if bpy.data.collections.get(pair.highpoly) else pair.highpoly
+                    else: # collection
+                        high_is_selected = context.collection and pair.highpoly == context.collection.name
+                        high_name = f"[{pair.highpoly}]" if high_is_selected else pair.highpoly
 
                     icon = "CHECKBOX_HLT" if pair.activated else "CHECKBOX_DEHLT"
                     sub_header.prop(pair, 'activated',text=f"{low_name} - {high_name}", icon=icon, emboss=False)
@@ -133,7 +134,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         col = split.column(align=True)
                         # Lowpoly settings
                         subrow = col.row(align=True)
-                        ic = "SNAP_FACE" if low_is_selected else "OBJECT_DATA"
+                        ic = "STRIP_COLOR_03" if low_is_selected else "OBJECT_DATA"
                         subrow.prop_search(pair, "lowpoly", scene, "objects", icon=ic)
                         oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                         oper.bj_i = job_i
@@ -153,7 +154,8 @@ class CB_PT_SDPanel(bpy.types.Panel):
                             oper.gr_obj = "object"
                             oper.prop = "highpoly"
                         else:
-                            subrow.prop_search(pair, "highpoly", bpy.data, "collections")
+                            icon = "COLLECTION_COLOR_03" if high_is_selected else "OUTLINER_COLLECTION"
+                            subrow.prop_search(pair, "highpoly", bpy.data, "collections", icon=icon)
                             oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                             oper.bj_i = job_i
                             oper.pair_i = pair_i
