@@ -290,6 +290,7 @@ def draw_prefs(layout, self):
         col.prop(self, "AO")
         col.prop(self, "NORMAL")
         col.prop(self, "DEPTH")
+        col.prop(self, "POSITION")
         col.prop(self, "CURVATURE")
         # col.prop(self, "COMBINED")
         col.prop(self, "OPACITY")
@@ -323,6 +324,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     AO: bpy.props.StringProperty(name="AO", description="", default='ao')
     NORMAL: bpy.props.StringProperty(name="Normal", description="", default="nrm")
     DEPTH: bpy.props.StringProperty(name="Depth map", description="", default="depth")
+    POSITION: bpy.props.StringProperty(name="Position map", description="", default="position")
     CURVATURE: bpy.props.StringProperty(name="Curvature map", description="", default="curvature")
     OPACITY: bpy.props.StringProperty(name="Opacity map", description="", default="opacity")
     COMBINED: bpy.props.StringProperty(name="Combined map", description="", default="combined")
@@ -390,6 +392,7 @@ class CB_OT_SDAddPassOp(bpy.types.Operator):
                                       ("NORMAL", "Normal", ""),
                                       ("OPACITY", "Opacity mask", ""),
                                       ("DEPTH", "Depth (GeoNodes)", ""),
+                                      ("POSITION", "Position (GeoNodes)", ""),
                                       ("CURVATURE", "Curvature (GeoNodes)", "")),
                                       default="DIFFUSE")
 

@@ -98,6 +98,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                       ("NORMAL", "Normal", ""),
                                       ("OPACITY", "Opacity mask", ""),
                                       ("DEPTH", "Depth (GeoNodes)", ""),
+                                      ("POSITION", "Position (GeoNodes)", ""),
                                       ("CURVATURE", "Curvature (GeoNodes)", "")),
                                       default="NORMAL",)
 
@@ -168,6 +169,8 @@ class CyclesBakePass(bpy.types.PropertyGroup):
     depth_low_offset: bpy.props.FloatProperty(name="Low Offset", description="Black level offset (for valleys)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE', update=update_gn_modifier)
     depth_high_offset: bpy.props.FloatProperty(name="High Offset", description="White level offset (for hills)", default=0.0, min=-1000.0, max=1000.0, subtype='DISTANCE', update=update_gn_modifier)
 
+    # POSITION
+    # --- no options
 
     # CURVATURE
     curvature_mode: bpy.props.EnumProperty(name="Mode", description="",
@@ -223,6 +226,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             "COMBINED": addon_prefs.COMBINED,
             "OPACITY": addon_prefs.OPACITY,
             "DEPTH": addon_prefs.DEPTH,
+            "POSITION": addon_prefs.POSITION,
             "CURVATURE": addon_prefs.CURVATURE,
         }
         return suffix_map.get(self.pass_type, "")

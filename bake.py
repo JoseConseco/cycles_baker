@@ -50,7 +50,7 @@ from bpy.app.handlers import persistent
 # Socket_2 > {'name': 'Contrast', 'type': 'NodeSocketFloat', 'default_value': 1.0, 'min_value': 0.009999999776482582, 'max_value': 1.0, 'subtype': 'FACTOR', 'description': ''}
 # Socket_3 > {'name': 'Blur', 'type': 'NodeSocketInt', 'default_value': 3, 'min_value': 0, 'max_value': 2147483647, 'subtype': 'NONE', 'description': ''}
 
-node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_CurvaturePass", "CycBaker_SplitExtrude", "CB_CollectionToMesh" ]
+node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_PositionPass", "CB_CurvaturePass", "CycBaker_SplitExtrude", "CB_CollectionToMesh" ]
 
 def add_split_extrude_mod(obj, displace_val):
     gn_displce = add_geonodes_mod(obj, "Cage CBaker", "CycBaker_SplitExtrude")
@@ -70,6 +70,9 @@ def get_ao_mod(obj):
 
 def get_depth_mod(obj):
     return obj.modifiers.get("Depth CBaker")
+
+def get_position_mod(obj):
+    return obj.modifiers.get("Position CBaker")
 
 def get_curvature_mod(obj):
     return obj.modifiers.get("Curvature CBaker")
@@ -106,6 +109,16 @@ def set_depth_mod(obj, ref_obj, pass_settings):
     obj.update_tag()
     return depth_mod
 
+def set_position_mod(obj, loc_helper_obj):
+    """Calculate depth based on distance from reference (usually lowpoly) object."""
+    pos_mod = get_position_mod(obj)
+    if not pos_mod:
+        pos_mod = add_geonodes_mod(obj, "Position CBaker", "CB_PositionPass")
+    pos_mod['Socket_2'] = loc_helper_obj                          # Object for Distance
+    obj.modifiers.update()  # Update modifier to apply changes
+    obj.update_tag()
+    return pos_mod
+
 def set_curvature_mod(obj, pass_settings):
     curvature_mod = get_curvature_mod(obj)
     if not curvature_mod:
@@ -129,6 +142,7 @@ def get_raycast_distance(low_poly):
 
 AO_NODES = "CB_AOPass"
 DEPTH_NODES = "CB_DepthPass"
+POSITION_NODES = "CB_PositionPass"
 CURVATURE_NODES = "CB_CurvaturePass"
 
 BG_color = {
@@ -138,6 +152,7 @@ BG_color = {
     "DIFFUSE": np.array([0.0, 0.0, 0.0, 0.0]),
     "OPACITY": np.array([0.0, 0.0, 0.0, 0.0]),
     "DEPTH": np.array([0.0, 0.0, 0.0, 1.0]),
+    "POSITION": np.array([0.0, 0.0, 0.0, 1.0]),
     "CURVATURE": np.array([0.5, 0.5, 0.5, 1.0]),
 }
 
@@ -678,11 +693,23 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         pass_components = {'NONE'}
         if bakepass.pass_type in ("DIFFUSE"):
             pass_components = {'COLOR'}
-        elif bakepass.pass_type in ("AO_GN", "DEPTH" , "CURVATURE"):
+        elif bakepass.pass_type in ("AO_GN", "DEPTH" , "CURVATURE", "POSITION"):
             if bakepass.pass_type == "CURVATURE":
                 set_curvature_mod(high_proxy, bakepass)
             elif bakepass.pass_type == "DEPTH":
                 set_depth_mod(high_proxy, low_proxy, bakepass)
+            elif bakepass.pass_type == "POSITION":
+                # loc helper - will be made from len(lowpoly)   vert count     - and hold LOCATION vert attribute -> which will store lowpoly obj location
+                loc_mesh = bpy.data.meshes.new("LocHelper_MD_TMP")
+                low_coll = bpy.data.collections.get("LOWPOLY_MD_TMP")
+                low_cnt = len(low_coll.objects)
+                loc_mesh.from_pydata([(0, 0, 0)] * low_cnt, [], [])
+                loc_attrib = loc_mesh.attributes.new("LOCATION", 'FLOAT_VECTOR', "POINT")
+                for i, obj in enumerate(low_coll.objects):
+                    loc_attrib.data[i].vector = obj.matrix_world.translation
+                loc_helper_obj = bpy.data.objects.new("LocHelper_MD_TMP", loc_mesh)
+                set_position_mod(high_proxy, loc_helper_obj)
+
             elif bakepass.pass_type == "AO_GN":
                 set_ao_mod(high_proxy, bakepass)
             attrib_mat = import_attrib_bake_mat()
@@ -1030,6 +1057,7 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
                                      items=[
                                          ('CURVATURE', "Curvature", "Preview Curvature Pass"),
                                          ('DEPTH', "Depth", "Preview Depth Pass"),
+                                         ('POSITION', "Position", "Preview Position Pass"),
                                          ('AO_GN', "AO (Geometry Nodes)", "Preview AO Pass with Geometry Nodes"),
                                      ],
                                      default='CURVATURE',
@@ -1084,6 +1112,7 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
                 low_obj = bpy.data.objects[pair.lowpoly]
                 # low_cp = create_copy(low_obj, collections['low'])
                 collections['low'].objects.link(low_obj)
+            # TODO: handle position?
 
 
             # Process highpoly
