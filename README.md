@@ -1,5 +1,28 @@
 Extension for Blender 4.4+ for baking pairs of high/low-poly objects.
 
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/yL7A8PiKmxM/0.jpg)](https://www.youtube.com/watch?v=yL7A8PiKmxM)
+
+Installation:
+ * Install Cycles Baker as *Extension** from Blender Preferences > Get Extensions > Install From Disk (drop-down menu at the very top right corner) > find place where you saved CyclesBaker zip file
+
+Location:
+* Right Sidebar > Tools > Cycles Baker tab
+
+Usage:
+ * use 'Add Pair' button and pick low-poly mesh and high-poly object (or collection)
+ * Add needed baking passes (e.g. Diffuse, AO, Opacity, Depth etc)
+ * Press 'Bake'
+
+It supported passes:
+ * Material (Diffuse),
+ * Normal,
+ * Opacity.
+ * Ambient Occlusion (and thickness),
+ * Curvature,
+ * Position,
+ * Depth (not 100% accurate, but good enough for most cases - like scalp masks),
+
+
 ![CyclesBake](https://github.com/user-attachments/assets/7b58338c-1b76-46c9-b852-6323182fcf47)
 
 It supports baking:
