@@ -1016,7 +1016,7 @@ OLD_RENDER_PASS = None
 handleDrawRayDistance = []
 
 @persistent
-def disable_3d_cage_handler():
+def disable_3d_cage_handler(dummy=None):
     """Disable the 3D cage drawing handler if it exists."""
     global handleDrawRayDistance
     if handleDrawRayDistance:
