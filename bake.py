@@ -169,7 +169,7 @@ def draw_cage_callback(bake_pair, context):
         return
     global Verts, Loops, Indices, Loop_to_Vert_id, Verts_co
     if low_poly.type == 'MESH' and context.mode == 'OBJECT':
-        ray_dist = bake_pair.ray_dist * get_raycast_distance(low_poly)
+        bake_extrusion = bake_pair.bake_extrusion * get_raycast_distance(low_poly)
 
         depsgraph = bpy.context.evaluated_depsgraph_get()
         obj_eval = low_poly.evaluated_get(depsgraph)
@@ -204,7 +204,7 @@ def draw_cage_callback(bake_pair, context):
         Verts = Verts_co[Loop_to_Vert_id] # loop will point to vertex co
 
         # Extrude along split normals
-        Verts = Verts + Loops * ray_dist
+        Verts = Verts + Loops * bake_extrusion
 
         gpu.state.blend_set('ALPHA')
         gpu.state.face_culling_set('BACK')
@@ -605,9 +605,9 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             else:
                 temp_cage = create_copy(low_cp, collections['cage'], copy_data=True)
                 temp_cage.name = f"TEMP_CAGE_{low_cp.name}"
-                ray_dist = pair.ray_dist * get_raycast_distance(low_obj)
-                # print(f"Baking cage for {pair.lowpoly} with ray distance: {ray_dist}")
-                add_split_extrude_mod(temp_cage, ray_dist)
+                bake_extrusion = pair.bake_extrusion * get_raycast_distance(low_obj)
+                # print(f"Baking cage for {pair.lowpoly} with ray distance: {bake_extrusion}")
+                add_split_extrude_mod(temp_cage, bake_extrusion)
 
             # Convert cage to mesh
             # with context.temp_override(selected_editable_objects=[temp_cage], active_object=temp_cage, selected_objects=[temp_cage]):
@@ -682,6 +682,9 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         low_proxy = scn.objects["LowProxy_MD_TMP"]
         high_proxy = scn.objects["HighProxy_MD_TMP"]
         cage_proxy = scn.objects["CageProxy_MD_TMP"]
+        cage_proxy.hide_set(False)
+        cage_proxy.hide_render = False
+        context.view_layer.update()
 
         if bakepass.pass_type == "AO":
             scn.cycles.samples = bakepass.samples
@@ -738,6 +741,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             margin=padding*aa,
                             use_selected_to_active=True,
                             cage_extrusion=0,
+                            max_ray_distance=bake_job.inward_ray_distance,
                             normal_space=bakepass.nm_space,
                             normal_r="POS_X", normal_g=bakepass.nm_invert, normal_b='POS_Z',
                             save_mode='INTERNAL',
@@ -901,8 +905,15 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 continue
             # ensure save path exists
             if not os.path.exists(bpy.path.abspath(bj.output)):
-                os.makedirs(bpy.path.abspath(bj.output))
-
+                try:
+                    os.makedirs(bpy.path.abspath(bj.output))
+                except Exception as e:
+                    if not bpy.path.abspath(bj.output):
+                        self.report({'ERROR'}, "Output path is not defined. Please set output path in bake job settings. Skipping bake job: " + bj.name)
+                    else:
+                        self.report({'ERROR'}, f"Failed to create output directory: {e}. Skipping bake job: " + bj.name)
+                    wm.progress_end()
+                    continue
 
             for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not defined
                 if pair.lowpoly == "" or not bpy.data.objects.get(pair.lowpoly):

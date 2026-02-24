@@ -34,6 +34,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Cycles Baking"
+    bl_options = {'DEFAULT_CLOSED'}
 
 
     def draw(self, context):
@@ -94,6 +95,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                 panel.prop(bj, 'bakeResolution', text="Resolution")
                 panel.prop(bj, 'antialiasing', text="AA")
                 panel.prop(bj, 'use_channel_packing', icon='NODE_COMPOSITING')
+                panel.prop(bj, 'inward_ray_distance')
 
                 split = panel.split(factor=0.70, align=True)
                 split.prop(bj, 'padding_mode', text='')
@@ -166,7 +168,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         subrow = col.row(align=True)
                         subrow.prop(pair, 'use_cage', icon_only=True, icon="OUTLINER_OB_LATTICE")
                         if not pair.use_cage:
-                            subrow.prop(pair, 'ray_dist', expand=True)
+                            subrow.prop(pair, 'bake_extrusion', expand=True)
                             subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
                         else:
                             subrow.prop_search(pair, "cage", scene, "objects")
