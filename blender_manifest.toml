@@ -1,13 +1,13 @@
 schema_version = "1.0.0"
 id = "CyclesBaker"
-version = "2.0.3"
+version = "2.0.5"
 name = "Cycles Baker"
 tagline = "UI for baking with Cycles."
 maintainer = "JoseConseco"
 type = "add-on"
 website = "https://joseconseco.github.io/GroupProDocs/"
 tags = ["Object"]
-blender_version_min = "4.4.0"
+blender_version_min = "4.5.0"
 
 # blender_version_max = "5.1.0"
 
