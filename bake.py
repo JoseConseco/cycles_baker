@@ -425,6 +425,8 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
     bl_description = "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
     bl_options = {'REGISTER', 'UNDO'}
 
+    invoke_area = None
+
     bake_pair_index: bpy.props.IntProperty(name="Bake Pair Index", default=-1, description="Index of the bake pair to process")
 
 
@@ -472,6 +474,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
         obj.material_slots[0].material = low_bake_mat
         return low_bake_mat
+
+    def restore_uv_edior_image(self, context):
+        # restore active image in UV Editor only when initial image is not a None
+        if self.init_uv_image_tupl and self.init_uv_image_tupl[0]:
+            self.invoke_area.spaces.active.image = self.init_uv_image_tupl[0]
+            self.invoke_area.spaces.active.use_image_pin = self.init_uv_image_tupl[1]
 
     @staticmethod
     def create_bake_mat_and_node():
@@ -752,6 +760,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                             use_split_materials=False, use_automatic_name=False)
 
         print("Baking set " + bakepass.pass_type + "  time: " + str(datetime.now() - startTime))
+        # dupa
         context.view_layer.material_override = None  # clear material override
 
     @staticmethod
@@ -884,6 +893,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
 
     def execute(self, context):
         TotalTime = datetime.now()
+        orignal_scene = context.scene
         cycles_bake_settings = context.scene.cycles_baker_settings
         active_bjobs = [bj for bj in cycles_bake_settings.bake_job_queue if bj.activated]
         if len(active_bjobs) == 0:
@@ -892,6 +902,19 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if self.is_empty_mat(context):
             return {'CANCELLED'}
 
+        # self.invoke_area = context.area # TODO: find UV Editor or Image Editor area
+        # set alpha texture as active image in UV Editor if exist
+
+        # Find UV Editor or Image Editor area
+        self.editor_area = None
+        for area in context.screen.areas:
+            if area.type in {'IMAGE_EDITOR', 'UV_EDITOR'}:
+                self.editor_area = area
+                self.active_img = area.spaces.active.image
+                break
+
+
+        # set alpha texture as active image in UV Editor if exist
         disable_all_cages_drawing(context)  # disable all cages drawing before preview
 
         total_steps = sum(len([p for p in bj.bake_pass_list if p.activated]) for bj in active_bjobs)
@@ -915,13 +938,22 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                     wm.progress_end()
                     continue
 
+            any_pair_is_active = False
             for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not defined
-                if pair.lowpoly == "" or not bpy.data.objects.get(pair.lowpoly):
+                if not pair.lowpoly or not bpy.data.objects.get(pair.lowpoly):
                     self.report({'INFO'}, 'Lowpoly not found ' + pair.lowpoly)
                     pair.activated = False
-                if pair.highpoly == "" or (pair.hp_type=="OBJ" and  not bpy.data.objects.get(pair.highpoly)) or (pair.hp_type=="GROUP" and  not bpy.data.collections.get(pair.highpoly)):
+                if not pair.highpoly or (pair.hp_type=="OBJ" and  not bpy.data.objects.get(pair.highpoly)) or (pair.hp_type=="GROUP" and  not bpy.data.collections.get(pair.highpoly)):
                     self.report({'INFO'}, 'highpoly not found ' + pair.highpoly)
                     pair.activated = False
+                if pair.activated:
+                    any_pair_is_active = True
+
+            if not any_pair_is_active:
+                self.report({'ERROR'}, f"No any valid low-hight pairs found in current bake job: {bj.name}. Skipping Bake.")
+                wm.progress_end()
+                continue
+
 
             self.scene_copy(context, bj)  # we export temp scene copy
 
@@ -949,6 +981,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 self.select_hi_low(bj)
                 self.bake_pair_pass(context, bj, bakepass)
 
+                # dupa
                 if bakepass.pass_type != "OPACITY":  # opacity is not saved to image
                     pass
                     # add_padding_offscreen(render_target, img_res*aa, img_res*aa, padding_size=aa*padding)
@@ -987,10 +1020,13 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 bpy.data.images.remove(render_target, do_unlink=True)
 
                 # if path.isfile(imgPath):  # load bake from disk
-                img_users = (img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath)
+                img_users = [img for img in bpy.data.images if abs_file_path(img.filepath) == imgPath]
                 if img_users:
                     for img in img_users:
+                        # print(img.name + " is already loaded. Reloading... ")
                         img.reload()  # reload done in baking
+                        img.update()
+                        img.update_tag()
                 else:
                     img = bpy.data.images.load(filepath=imgPath)
 
@@ -1001,6 +1037,13 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
                 ht_channel_mixing(context, bj)  # create channel mixing nodes for hair toon
 
         print(f"Cycles Total baking time: {(datetime.now() - TotalTime).seconds} sec")
+        context.window.scene = orignal_scene
+        if self.editor_area:
+            # fix - baked image gets removed from  UV Editor / Image Editor
+            self.editor_area.spaces.active.image = self.active_img
+            # self.editor_area.tag_redraw()
+            # context.view_layer.update()
+
         addon_prefs = get_addon_preferences()
         if addon_prefs.play_finish_sound:
             self.playFinishSound()

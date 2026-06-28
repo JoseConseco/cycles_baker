@@ -54,7 +54,7 @@ class CyclesBakePair(bpy.types.PropertyGroup):
     )
     use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False, update=use_cage_update)
     cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
-    bake_extrusion: bpy.props.FloatProperty( name="Bake Extrusion", description="Limits how far outside of the lowpoly mesh surface, rays should be casted", default=1.0, min=0, max=10, subtype='FACTOR')
+    bake_extrusion: bpy.props.FloatProperty( name="Bake Extrusion", description="Rays will be casted from outside of the lowpoly mesh surface, based on this extrusion length (relative to object bounding box size)", default=1.0, min=0, max=10, subtype='FACTOR')
     draw_front_dist: bpy.props.BoolProperty( name="Draw Front distance", description="Draw Front Distance Overlay", default=False, update=drawCage)
     no_materials: bpy.props.BoolProperty(name="No Materials", default=False)
 
@@ -255,8 +255,8 @@ class CyclesBakeJob(bpy.types.PropertyGroup):
     expand: bpy.props.BoolProperty(name="Expand", default=True)
     use_channel_packing: bpy.props.BoolProperty(name="Use channel packing", description="Mix RGBA channels of baked textures in 'Texture Channel Mixing' nodes editor (for now this works only if you have Hair Tool)", default=False, update=update_compose)
 
-    inward_ray_distance: bpy.props.FloatProperty(name="Inward Ray Distance",
-                                              description="Maximum inward ray distance for baking (0 - no limit)",
+    inward_ray_distance: bpy.props.FloatProperty(name="Ray Distance",
+                                              description="Baking cast rays 'from above lowpoly surface' using extruded lowpoly mesh as ray origin and facing inwards (toward origal lowpoly object).\nYou can limit ray length here - but try to make it longer than 'Bake Extrusion' or some parts may not be baked correctly\n0 - no limit",
                                               default=0.0, min=0.0, soft_max=1.0, subtype='DISTANCE')
 
     bakeResolution: bpy.props.EnumProperty(name="Resolution", default="1024",
