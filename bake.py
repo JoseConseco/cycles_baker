@@ -23,8 +23,9 @@ import bpy
 import os
 import aud
 import math
-from mathutils import Vector
+from mathutils import Vector, Matrix
 from datetime import datetime
+import re
 
 import gpu
 import numpy as np
@@ -136,7 +137,7 @@ def import_attrib_bake_mat():
     return bake_mat
 
 
-def get_raycast_distance(low_poly):
+def relative_extrusion_dist(low_poly):
     objBBoxSize = 0.2*Vector(low_poly.dimensions[:]).length
     return objBBoxSize
 
@@ -158,18 +159,30 @@ BG_color = {
 
 shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
 Verts = None
-Loops = None
-Indices = None
+CornerNormals = None
+TriIndices = None
 Loop_to_Vert_id = None
-Verts_co = None
+VertsPos = None
 
 def draw_cage_callback(bake_pair, context):
     low_poly = bpy.data.objects.get(bake_pair.lowpoly)
     if not bake_pair.draw_front_dist or not bake_pair.lowpoly or not low_poly:
         return
-    global Verts, Loops, Indices, Loop_to_Vert_id, Verts_co
+    global Verts, CornerNormals, TriIndices, Loop_to_Vert_id, VertsPos
     if low_poly.type == 'MESH' and context.mode == 'OBJECT':
-        bake_extrusion = bake_pair.bake_extrusion * get_raycast_distance(low_poly)
+        # 2. Use regular expressions to extract the number inside the first brackets
+        full_path = bake_pair.path_from_id()
+        match = re.search(r'bake_job_queue\[(\d+)\]', full_path)
+
+        ray_dist = 0
+        if match:
+            # 3. Convert the string match to an integer
+            queue_index = int(match.group(1))
+            print(f"The parent bake_job_queue index is: {queue_index}")
+            bake_job = context.scene.cycles_baker_settings.bake_job_queue[queue_index]
+            ray_dist =  bake_job.inward_ray_distance
+
+        bake_extrusion = bake_pair.bake_extrusion * relative_extrusion_dist(low_poly)
 
         depsgraph = bpy.context.evaluated_depsgraph_get()
         obj_eval = low_poly.evaluated_get(depsgraph)
@@ -180,11 +193,11 @@ def draw_cage_callback(bake_pair, context):
         tri_count = len(mesh.loop_triangles)
 
         # Reallocate arrays if mesh changed
-        if Loops is None or Loops.shape[0] != loop_count:
-            Loops = np.empty((loop_count, 3), 'f')  # Normal per loop
+        if CornerNormals is None or CornerNormals.shape[0] != loop_count:
+            CornerNormals = np.empty((loop_count, 3), 'f')  # Normal per loop
             Verts = np.empty((loop_count, 3), 'f')  # One vertex per loop
-            Verts_co = np.empty((loop_count, 3), 'f')  # One vertex per loop
-            Indices = np.empty((tri_count, 3), 'i')
+            VertsPos = np.empty((loop_count, 3), 'f')  # One vertex per loop
+            TriIndices = np.empty((tri_count, 3), 'i')
             Loop_to_Vert_id = np.empty(loop_count, dtype=np.int32)
         #
         # # Get vertex positions for each loop
@@ -197,17 +210,30 @@ def draw_cage_callback(bake_pair, context):
         #     Indices[i] = tri.loops
 
         mesh.loops.foreach_get('vertex_index', Loop_to_Vert_id)
-        mesh.corner_normals.foreach_get('vector', Loops.ravel())
-        mesh.vertices.foreach_get('co', Verts_co.ravel())
-        mesh.loop_triangles.foreach_get('loops', Indices.ravel()) # triangle loops indices
+        mesh.corner_normals.foreach_get('vector', CornerNormals.ravel())
+        mesh.vertices.foreach_get('co', VertsPos.ravel())
+        mesh.loop_triangles.foreach_get('loops', TriIndices.ravel()) # triangle loops indices
 
-        Verts = Verts_co[Loop_to_Vert_id] # loop will point to vertex co
+        Verts = VertsPos[Loop_to_Vert_id] # loop will point to vertex co
 
         # Extrude along split normals
-        Verts = Verts + Loops * bake_extrusion
+        Verts = Verts + CornerNormals * bake_extrusion
 
         gpu.state.blend_set('ALPHA')
         gpu.state.face_culling_set('BACK')
+
+        if ray_dist > 0:
+            mat = low_poly.matrix_world
+            ray_dist_local = mat.inverted() @ Vector((ray_dist, 0, 0, 0))
+            ray_dist_local = ray_dist_local.length
+            RayRangeVerts = Verts - CornerNormals * ray_dist_local # in lowpoly local space
+            # TODO: rander same mesh using RayRangeVerts - but in red
+            shader_uniform.uniform_float("color", (1, 0, 0, 0.3))
+            with gpu.matrix.push_pop():
+                gpu.matrix.multiply_matrix(low_poly.matrix_world)
+                red_batch = batch_for_shader(shader_uniform, 'TRIS', {"pos": RayRangeVerts}, indices=TriIndices)
+                red_batch.draw(shader_uniform)
+
 
         face_color = (0, 0.8, 0, 0.5) if bake_pair.draw_front_dist else (0.8, 0, 0, 0.5)
 
@@ -215,7 +241,7 @@ def draw_cage_callback(bake_pair, context):
             gpu.matrix.multiply_matrix(low_poly.matrix_world)
             shader_uniform.bind()
             shader_uniform.uniform_float("color", face_color)
-            batch = batch_for_shader(shader_uniform, 'TRIS', {"pos": Verts}, indices=Indices)
+            batch = batch_for_shader(shader_uniform, 'TRIS', {"pos": Verts}, indices=TriIndices)
             batch.draw(shader_uniform)
 
         # restore gpu defaults
@@ -613,7 +639,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             else:
                 temp_cage = create_copy(low_cp, collections['cage'], copy_data=True)
                 temp_cage.name = f"TEMP_CAGE_{low_cp.name}"
-                bake_extrusion = pair.bake_extrusion * get_raycast_distance(low_obj)
+                bake_extrusion = pair.bake_extrusion * relative_extrusion_dist(low_obj)
                 # print(f"Baking cage for {pair.lowpoly} with ray distance: {bake_extrusion}")
                 add_split_extrude_mod(temp_cage, bake_extrusion)
 
@@ -1089,7 +1115,7 @@ def draw_cage_handle(context, bake_pair):
 
         disable_3d_cage_handler()
 
-        args = (bake_pair, context)  # u can pass arbitrary class as first param  Instead of (self, context)
+        args = (bake_pair, context)  # u can pass arbitrary class as first param  Insteaa of (self, context)
         handleDrawRayDistance.append(bpy.types.SpaceView3D.draw_handler_add(draw_cage_callback, args, 'WINDOW', 'POST_VIEW'))
     else:
         disable_3d_cage_handler()
