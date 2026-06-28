@@ -178,7 +178,7 @@ def draw_cage_callback(bake_pair, context):
         if match:
             # 3. Convert the string match to an integer
             queue_index = int(match.group(1))
-            print(f"The parent bake_job_queue index is: {queue_index}")
+            # print(f"The parent bake_job_queue index is: {queue_index}")
             bake_job = context.scene.cycles_baker_settings.bake_job_queue[queue_index]
             ray_dist =  bake_job.inward_ray_distance
 
