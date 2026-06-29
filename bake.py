@@ -59,6 +59,12 @@ def add_split_extrude_mod(obj, displace_val):
     gn_displce['Socket_2'] = displace_val  # set extrusion distance
     return gn_displce
 
+def add_translate_instance_mod(obj, offset_val):
+    gn_displce = add_geonodes_mod(obj, "TranslateInstance", "CB_TranslateInstance")
+    #  'Socket_2' > 'Offset'
+    gn_displce['Socket_2'] = offset_val  # set extrusion distance
+    return gn_displce
+
 def add_collection_to_mesh_mod(obj, coll):
     coll_to_mesh = add_geonodes_mod(obj, "Collection To Mesh CBaker", "CB_CollectionToMesh")
     #  'Socket_2' > 'Collection'
@@ -445,9 +451,9 @@ def ht_channel_mixing(context, bj):
     # outputImg.filepath_raw = bpy.path.abspath(bake_settings.hair_bake_path + "Hair_compo." + ext)
 
 
-class CB_OT_CyclesBakeOps(bpy.types.Operator):
+class CB_OT_BakeExecute(bpy.types.Operator):
     bl_idname = "cycles.bake"
-    bl_label = "Bake Objects"
+    bl_label = "Bake Run"
     bl_description = "Bake selected pairs of highpoly-lowpoly objects using blender Bake 'Selected to Active' feature"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -513,10 +519,10 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         proxy_low = bpy.data.objects.get("LowProxy_MD_TMP")
         low_collection = bpy.data.collections.get("LOWPOLY_MD_TMP")
         first_low = low_collection.objects[0]
-        bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(first_low)
+        bake_mat = CB_OT_BakeExecute.get_set_first_material_slot(first_low)
 
         # assign first_mat to proxy tol
-        CB_OT_CyclesBakeOps.get_set_first_material_slot(proxy_low, bake_mat)
+        CB_OT_BakeExecute.get_set_first_material_slot(proxy_low, bake_mat)
 
         imgnode = bake_mat.node_tree.nodes.get('MDtarget')
         if not imgnode:
@@ -550,7 +556,7 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             for child  in root_empty_after_split.children_recursive:
                 child['tmp'] = True
                 if child.type in ('CURVE', 'CURVES', 'FONT'):
-                    CB_OT_CyclesBakeOps.obj_to_mesh(context, child, coll)
+                    CB_OT_BakeExecute.obj_to_mesh(context, child, coll)
             return root_empty_after_split
 
     @staticmethod
@@ -667,7 +673,12 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
             avg_pos = sum(positions, Vector((0,0,0))) / len(positions)
             translation = offset - avg_pos
             for obj in [low_cp, temp_cage] + hi_objs:
-                obj.matrix_world.translation += translation
+                if obj.type in {'MESH', 'CURVE', 'CURVES'}:
+                    # apply translation - as modifier - at end of stack, (to prevent obj.translation - messing up nodes added after obj.pos is evaluated)
+                    # thus first  eval nodes stack,  only then apply translation geo-node
+                    add_translate_instance_mod(obj, translation[:])
+                else:
+                    obj.matrix_world.translation += translation
 
         # Create proxy objects for each collection
         for name, collection in collections.items():
@@ -811,14 +822,14 @@ class CB_OT_CyclesBakeOps(bpy.types.Operator):
         if low_collection:
             low_obj = low_collection.objects[0] # first obj has to has proper mat
             if low_obj:
-                bake_mat = CB_OT_CyclesBakeOps.get_set_first_material_slot(low_obj)
+                bake_mat = CB_OT_BakeExecute.get_set_first_material_slot(low_obj)
                 imgnode = bake_mat.node_tree.nodes.get('MDtarget')
                 if imgnode:
                     bake_mat.node_tree.nodes.remove(imgnode)  # remove bake image node
 
         for obj in tmp_scn.objects:
             if obj.get('tmp', False):
-                CB_OT_CyclesBakeOps.remove_object(obj)
+                CB_OT_BakeExecute.remove_object(obj)
 
 
         # Remove all collections marked as temporary
@@ -1315,7 +1326,7 @@ class CB_OT_ClosePreviewOps(bpy.types.Operator):
 
         return {'FINISHED'}
 
-# cleanup operator (for CB_OT_CyclesBakeOps.cleanup())
+# cleanup operator (for CB_OT_BakeExecute.cleanup())
 class CB_OT_CleanupCyclesBake(bpy.types.Operator):
     bl_idname = "cycles.cleanup_cycles_bake"
     bl_label = "Cleanup Cycles Bake"
@@ -1323,5 +1334,5 @@ class CB_OT_CleanupCyclesBake(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     def execute(self, context):
-        CB_OT_CyclesBakeOps.cleanup()
+        CB_OT_BakeExecute.cleanup()
         return {'FINISHED'}
