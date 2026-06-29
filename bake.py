@@ -51,7 +51,7 @@ from bpy.app.handlers import persistent
 # Socket_2 > {'name': 'Contrast', 'type': 'NodeSocketFloat', 'default_value': 1.0, 'min_value': 0.009999999776482582, 'max_value': 1.0, 'subtype': 'FACTOR', 'description': ''}
 # Socket_3 > {'name': 'Blur', 'type': 'NodeSocketInt', 'default_value': 3, 'min_value': 0, 'max_value': 2147483647, 'subtype': 'NONE', 'description': ''}
 
-node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_PositionPass", "CB_CurvaturePass", "CycBaker_SplitExtrude", "CB_CollectionToMesh" ]
+node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_PositionPass", "CB_CurvaturePass", "CB_RandomPass", "CycBaker_SplitExtrude", "CB_CollectionToMesh" ]
 
 def add_split_extrude_mod(obj, displace_val):
     gn_displce = add_geonodes_mod(obj, "Cage CBaker", "CycBaker_SplitExtrude")
@@ -83,6 +83,9 @@ def get_position_mod(obj):
 
 def get_curvature_mod(obj):
     return obj.modifiers.get("Curvature CBaker")
+
+def get_random_mod(obj):
+    return obj.modifiers.get("Random CBaker")
 
 def set_ao_mod(obj, pass_settings):
     ao_mod = get_ao_mod(obj)
@@ -138,6 +141,16 @@ def set_curvature_mod(obj, pass_settings):
     obj.update_tag()
     return curvature_mod
 
+def set_random_mod(obj, pass_settings):
+    random_mod = get_random_mod(obj)
+    if not random_mod:
+        random_mod = add_geonodes_mod(obj, "Random CBaker", "CB_RandomPass")
+    random_mod['Socket_3'] = pass_settings.random_use_rgb  # RGB colors
+    random_mod['Socket_4'] = pass_settings.random_seed  # RGB colors
+    obj.modifiers.update()  # Update modifier to apply changes
+    obj.update_tag()
+    return random_mod
+
 def import_attrib_bake_mat():
     bake_mat = import_mat("CBaker_AttribMaterial")
     return bake_mat
@@ -151,6 +164,7 @@ AO_NODES = "CB_AOPass"
 DEPTH_NODES = "CB_DepthPass"
 POSITION_NODES = "CB_PositionPass"
 CURVATURE_NODES = "CB_CurvaturePass"
+RANDOM_NODES = "CB_RandomPass"
 
 BG_color = {
     "NORMAL": np.array([0.5, 0.5, 1.0, 1.0]),
@@ -161,6 +175,7 @@ BG_color = {
     "DEPTH": np.array([0.0, 0.0, 0.0, 1.0]),
     "POSITION": np.array([0.0, 0.0, 0.0, 1.0]),
     "CURVATURE": np.array([0.5, 0.5, 0.5, 1.0]),
+    "RANDOM": np.array([0.0, 0.0, 0.0, 1.0]),
 }
 
 shader_uniform = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -741,7 +756,7 @@ class CB_OT_BakeExecute(bpy.types.Operator):
         pass_components = {'NONE'}
         if bakepass.pass_type in ("DIFFUSE"):
             pass_components = {'COLOR'}
-        elif bakepass.pass_type in ("AO_GN", "DEPTH" , "CURVATURE", "POSITION"):
+        elif bakepass.pass_type in ("AO_GN", "DEPTH" , "CURVATURE", "POSITION", "RANDOM"):
             if bakepass.pass_type == "CURVATURE":
                 set_curvature_mod(high_proxy, bakepass)
             elif bakepass.pass_type == "DEPTH":
@@ -758,6 +773,8 @@ class CB_OT_BakeExecute(bpy.types.Operator):
                 loc_helper_obj = bpy.data.objects.new("LocHelper_MD_TMP", loc_mesh)
                 set_position_mod(high_proxy, loc_helper_obj)
 
+            elif bakepass.pass_type == "RANDOM":
+                set_random_mod(high_proxy, bakepass)
             elif bakepass.pass_type == "AO_GN":
                 set_ao_mod(high_proxy, bakepass)
             attrib_mat = import_attrib_bake_mat()
@@ -1147,6 +1164,7 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
     pass_type: bpy.props.EnumProperty(name="Pass Type",
                                      items=[
                                          ('CURVATURE', "Curvature", "Preview Curvature Pass"),
+                                         ('RANDOM', "Random Color", "Preview Random Color Pass"),
                                          ('DEPTH', "Depth", "Preview Depth Pass"),
                                          ('POSITION', "Position", "Preview Position Pass"),
                                          ('AO_GN', "AO (Geometry Nodes)", "Preview AO Pass with Geometry Nodes"),
@@ -1248,6 +1266,8 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         bake_pass = active_bj.bake_pass_list[self.pass_index]
         if self.pass_type == "CURVATURE":
             set_curvature_mod(high_proxy, bake_pass)
+        elif self.pass_type == "RANDOM":
+            set_random_mod(high_proxy, bake_pass)
         elif self.pass_type == "DEPTH":
             set_depth_mod(high_proxy, low_proxy, bake_pass)
         elif self.pass_type == "AO_GN":

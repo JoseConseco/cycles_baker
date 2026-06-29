@@ -31,6 +31,8 @@ from .bake import (
     set_curvature_mod,
     get_depth_mod,
     get_curvature_mod,
+    set_random_mod,
+    get_random_mod,
     ht_channel_mixing,
 )
 
@@ -85,6 +87,12 @@ CURVATURE_PARAM_MAP = {
     "curvature_blur": "Socket_3"
 }
 
+# Mapping for Random Color pass parameters
+RANDOM_PARAM_MAP = {
+    "random_use_rgb": "Socket_3",   # use modifier input "Socket_3" to make Random pass use RGB colors
+    "random_seed": "Socket_4",   # use modifier input "Socket_3" to make Random pass use RGB colors
+}
+
 
 class CyclesBakePass(bpy.types.PropertyGroup):
     activated: bpy.props.BoolProperty(name="Activated", default=True)
@@ -99,7 +107,8 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                                       ("OPACITY", "Opacity mask", ""),
                                       ("DEPTH", "Depth (GeoNodes)", ""),
                                       ("POSITION", "Position (GeoNodes)", ""),
-                                      ("CURVATURE", "Curvature (GeoNodes)", "")),
+                                      ("CURVATURE", "Curvature (GeoNodes)", ""),
+                                      ("RANDOM", "Random Color (GeoNodes)", "")),
                                       default="NORMAL",)
 
     # NORMAL  - baked from cycles
@@ -133,10 +142,16 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                 set_depth_mod(proxy_obj, low_proxy, self)
                 return
 
-            # AO modifier update
+            # Curvature modifier update
             curvature_mod = get_curvature_mod(proxy_obj)
             if curvature_mod:
                 set_curvature_mod(proxy_obj, self)
+                return
+
+            # Random modifier update
+            random_mod = get_random_mod(proxy_obj)
+            if random_mod:
+                set_random_mod(proxy_obj, self)
                 return
 
     # AO - cycles based
@@ -181,6 +196,10 @@ class CyclesBakePass(bpy.types.PropertyGroup):
     curvature_brightness: bpy.props.FloatProperty(name="Brightness", description="", default=0.0, min=-1.0, max=1.0, subtype='FACTOR', update=update_gn_modifier)
     curvature_blur: bpy.props.IntProperty(name="Blur", description="", default=3, min=0, soft_max=16, update=update_gn_modifier)
 
+    # RANDOM
+    random_use_rgb: bpy.props.BoolProperty(name="Use RGB Colors", description="Use RGB colors for random pass (Socket_3)", default=True, update=update_gn_modifier)
+    random_seed: bpy.props.IntProperty(name="Seed", description="Seed", default=1, min=0, max=999, update=update_gn_modifier)
+
 
     def props(self):
         prop_configs = {
@@ -212,6 +231,10 @@ class CyclesBakePass(bpy.types.PropertyGroup):
                 "curvature_contrast": None,
                 "curvature_brightness": None,
                 "curvature_blur": None
+            },
+            "RANDOM": {
+                "random_seed": None,
+                "random_use_rgb": {"type": "toggle"}
             }
         }
         return prop_configs.get(self.pass_type, {})
@@ -228,6 +251,7 @@ class CyclesBakePass(bpy.types.PropertyGroup):
             "DEPTH": addon_prefs.DEPTH,
             "POSITION": addon_prefs.POSITION,
             "CURVATURE": addon_prefs.CURVATURE,
+            "RANDOM": addon_prefs.RANDOM,
         }
         return suffix_map.get(self.pass_type, "")
 

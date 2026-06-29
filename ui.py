@@ -194,7 +194,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     sub_header, sub_panel = box.panel_prop(bakepass, "expand")
                     sub_header.prop(bakepass, 'pass_type', text="")
 
-                    if bakepass.pass_type in ( "AO_GN", "DEPTH", "CURVATURE"):
+                    if bakepass.pass_type in ( "AO_GN", "DEPTH", "CURVATURE", "RANDOM"):
                         op = sub_header.operator("cycles.preview_pass", text="", icon="HIDE_OFF")
                         op.pass_type = bakepass.pass_type
                         op.job_index = job_i
@@ -294,6 +294,7 @@ def draw_prefs(layout, self):
         col.prop(self, "DEPTH")
         col.prop(self, "POSITION")
         col.prop(self, "CURVATURE")
+        col.prop(self, "RANDOM")
         # col.prop(self, "COMBINED")
         col.prop(self, "OPACITY")
 
@@ -328,6 +329,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     DEPTH: bpy.props.StringProperty(name="Depth map", description="", default="depth")
     POSITION: bpy.props.StringProperty(name="Position map", description="", default="position")
     CURVATURE: bpy.props.StringProperty(name="Curvature map", description="", default="curvature")
+    RANDOM: bpy.props.StringProperty(name="Random Color map", description="", default="random")
     OPACITY: bpy.props.StringProperty(name="Opacity map", description="", default="opacity")
     COMBINED: bpy.props.StringProperty(name="Combined map", description="", default="combined")
 
@@ -395,7 +397,8 @@ class CB_OT_SDAddPassOp(bpy.types.Operator):
                                       ("OPACITY", "Opacity mask", ""),
                                       ("DEPTH", "Depth (GeoNodes)", ""),
                                       ("POSITION", "Position (GeoNodes)", ""),
-                                      ("CURVATURE", "Curvature (GeoNodes)", "")),
+                                      ("CURVATURE", "Curvature (GeoNodes)", ""),
+                                      ("RANDOM", "Random Color (GeoNodes)", "")),
                                       default="DIFFUSE")
 
 
