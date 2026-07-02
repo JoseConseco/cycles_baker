@@ -111,14 +111,14 @@ class CB_PT_SDPanel(bpy.types.Panel):
                     # row = panel.column(align=True).row(align=True)
                     box = panel.box().column(align=True)
                     sub_header, sub_panel = box.panel_prop(pair, "expand")
-                    low_is_selected = bpy.data.objects.get(pair.lowpoly) == active_obj
-                    low_name = f"[{pair.lowpoly}]" if low_is_selected else pair.lowpoly
+                    low_is_selected = pair.lowpoly == active_obj
+                    low_name = f"[{pair.lowpoly.name}]" if low_is_selected else (pair.lowpoly.name if pair.lowpoly else "")
                     if pair.hp_type == 'OBJ':
-                        high_is_selected = bpy.data.objects.get(pair.highpoly) == active_obj
-                        high_name = f"[{pair.highpoly}]" if high_is_selected else pair.highpoly
+                        high_is_selected = pair.highpoly == active_obj
+                        high_name = f"[{pair.highpoly.name}]" if high_is_selected else (pair.highpoly.name if pair.highpoly else "")
                     else: # collection
-                        high_is_selected = context.collection and pair.highpoly == context.collection.name
-                        high_name = f"[{pair.highpoly}]" if high_is_selected else pair.highpoly
+                        high_is_selected = context.collection and pair.highpoly_group == context.collection
+                        high_name = f"[{pair.highpoly_group.name}]" if high_is_selected else (pair.highpoly_group.name if pair.highpoly_group else "")
 
                     icon = "CHECKBOX_HLT" if pair.activated else "CHECKBOX_DEHLT"
                     sub_header.prop(pair, 'activated',text=f"{low_name} - {high_name}", icon=icon, emboss=False)
@@ -137,7 +137,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         # Lowpoly settings
                         subrow = col.row(align=True)
                         ic = "STRIP_COLOR_03" if low_is_selected else "OBJECT_DATA"
-                        subrow.prop_search(pair, "lowpoly", scene, "objects", icon=ic)
+                        subrow.prop(pair, "lowpoly", icon=ic, text='')
                         oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                         oper.bj_i = job_i
                         oper.pair_i = pair_i
@@ -149,7 +149,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                         subrow.prop(pair, 'hp_type', expand=True)
                         if pair.hp_type == 'OBJ':
                             ic = "STRIP_COLOR_03" if high_is_selected else "OBJECT_DATA"
-                            subrow.prop_search(pair, "highpoly", scene, "objects", icon=ic)
+                            subrow.prop(pair, "highpoly", icon=ic, text='')
                             oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                             oper.bj_i = job_i
                             oper.pair_i = pair_i
@@ -157,12 +157,12 @@ class CB_PT_SDPanel(bpy.types.Panel):
                             oper.prop = "highpoly"
                         else:
                             icon = "COLLECTION_COLOR_03" if high_is_selected else "OUTLINER_COLLECTION"
-                            subrow.prop_search(pair, "highpoly", bpy.data, "collections", icon=icon)
+                            subrow.prop(pair, "highpoly_group", icon=icon, text='')
                             oper = subrow.operator("cyclesbake.objectpicker", text="", icon="EYEDROPPER")
                             oper.bj_i = job_i
                             oper.pair_i = pair_i
                             oper.gr_obj = "group"
-                            oper.prop = "highpoly"
+                            oper.prop = "highpoly_group"
 
                         # Cage settings
                         subrow = col.row(align=True)
@@ -171,7 +171,7 @@ class CB_PT_SDPanel(bpy.types.Panel):
                             subrow.prop(pair, 'bake_extrusion', expand=True)
                             subrow.prop(pair, 'draw_front_dist', icon='MOD_THICKNESS', icon_only=True, expand=True)
                         else:
-                            subrow.prop_search(pair, "cage", scene, "objects")
+                            subrow.prop(pair, "cage")
                             oper = subrow.operator("cyclesbake.cage_maker", text="", icon="FILE_NEW")
                             oper.bj_i = job_i
                             oper.pair_i = pair_i
@@ -453,16 +453,12 @@ class CB_OT_ObjectPicker(bpy.types.Operator):
         cycles_bake_settings = context.scene.cycles_baker_settings
         bake_job = cycles_bake_settings.bake_job_queue[self.bj_i]
         bake_pair = bake_job.bake_pairs_list[self.pair_i]
-        if self.prop == "highpoly":
-            if self.gr_obj == "group":
-                if context.collection:
-                    bake_pair[self.prop] = context.collection.name
-            else:
-                if context.active_object and context.active_object.select_get():
-                    bake_pair[self.prop] = context.active_object.name
-        else: # lowpoly
+        if self.prop == "highpoly_group":
+            if context.collection:
+                setattr(bake_pair,self.prop, context.collection)
+        else:
             if context.active_object and context.active_object.select_get():
-                bake_pair[self.prop] = context.active_object.name
+                setattr(bake_pair,self.prop, context.active_object)
 
         return {'FINISHED'}
 
@@ -478,9 +474,9 @@ class CB_OT_CageMaker(bpy.types.Operator):
     def execute(self, context):
         bj = context.scene.cycles_baker_settings.bake_job_queue[self.bj_i]
         pair = bj.bake_pairs_list[self.pair_i]
-        lowObj = bpy.data.objects.get(pair.lowpoly)
+        lowObj = pair.lowpoly
         if not lowObj:
-            self.report({'ERROR'}, f"Lowpoly object '{self.lowpoly}' not found.")
+            self.report({'ERROR'}, f"Lowpoly object not found.")
             return {'CANCELLED'}
 
         # cageObj = bpy.data.objects.new('cage_' + self.lowpoly, lowObj.data.copy())  # duplicate obj but not instance
@@ -503,7 +499,7 @@ class CB_OT_CageMaker(bpy.types.Operator):
         push_mod.vertex_group = vg.name
 
         link_obj_to_same_collections(lowObj, cageObj)
-        pair.cage = cageObj.name
+        pair.cage = cageObj
         return {'FINISHED'}
 
 
@@ -539,9 +535,8 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
 
         low_objs = []
         for pair in bj.bake_pairs_list:
-            lowpoly = bpy.data.objects.get(pair.lowpoly)
-            if lowpoly:  # create group for hipoly
-                low_objs.append(bpy.data.objects[pair.lowpoly])
+            if pair.lowpoly:  # create group for hipoly
+                low_objs.append(pair.lowpoly)
 
         if not low_objs:
             self.report({'ERROR'}, "No lowpoly objects found in the bake job.")

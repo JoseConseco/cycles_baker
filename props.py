@@ -46,16 +46,17 @@ class CyclesBakePair(bpy.types.PropertyGroup):
 
     activated: bpy.props.BoolProperty( name="Activated", description="Enable/Disable baking this pair of objects. Old bake result will be used if disabled", default=True)
     expand: bpy.props.BoolProperty(name="Expand", default=True)
-    lowpoly: bpy.props.StringProperty(name="", description="Lowpoly mesh", default="")
-    highpoly: bpy.props.StringProperty(name="", description="Highpoly mesh", default="")
-    hp_type: bpy.props.EnumProperty( name="Object vs Group", description="", default="OBJ",
+    lowpoly: bpy.props.PointerProperty(name="Lowpoly", type=bpy.types.Object, description="Lowpoly mesh")
+    highpoly: bpy.props.PointerProperty(name="Highpoly", type=bpy.types.Object, description="Highpoly mesh")
+    hp_type: bpy.props.EnumProperty( name="Object vs Collection", description="", default="OBJ",
         items=[
             ('OBJ', '', 'Object', 'MESH_CUBE', 0,),
-            ('GROUP', '', 'Group', 'GROUP', 1,),
+            ('GROUP', '', 'Collection', 'GROUP', 1,),
         ]
     )
+    highpoly_group: bpy.props.PointerProperty(name="Highpoly Collection", type=bpy.types.Collection, description="Highpoly collection")
     use_cage: bpy.props.BoolProperty(name="Use Cage", description="Use cage object", default=False, update=use_cage_update)
-    cage: bpy.props.StringProperty(name="", description="Cage mesh", default="")
+    cage: bpy.props.PointerProperty(name="Cage", type=bpy.types.Object, description="Cage mesh")
     bake_extrusion: bpy.props.FloatProperty( name="Bake Extrusion", description="Rays will be casted from outside of the lowpoly mesh surface, based on this extrusion length (relative to object bounding box size)", default=1.0, min=0, max=10, subtype='FACTOR')
     draw_front_dist: bpy.props.BoolProperty( name="Draw Front distance", description="Draw Front Distance Overlay", default=False, update=drawCage)
     no_materials: bpy.props.BoolProperty(name="No Materials", default=False)

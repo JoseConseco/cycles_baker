@@ -186,8 +186,8 @@ Loop_to_Vert_id = None
 VertsPos = None
 
 def draw_cage_callback(bake_pair, context):
-    low_poly = bpy.data.objects.get(bake_pair.lowpoly)
-    if not bake_pair.draw_front_dist or not bake_pair.lowpoly or not low_poly:
+    low_poly = bake_pair.lowpoly
+    if not bake_pair.draw_front_dist or not bake_pair.lowpoly:
         return
     global Verts, CornerNormals, TriIndices, Loop_to_Vert_id, VertsPos
     if low_poly.type == 'MESH' and context.mode == 'OBJECT':
@@ -650,18 +650,18 @@ class CB_OT_BakeExecute(bpy.types.Operator):
             positions = []
 
             # Process lowpoly
-            low_obj = bpy.data.objects[pair.lowpoly]
+            low_obj = pair.lowpoly
             low_cp = create_copy(low_obj, collections['low'])
             positions.append(low_obj.evaluated_get(deps).matrix_world.translation)
 
             # Process cage
-            if pair.use_cage and (cage := bpy.data.objects.get(pair.cage)):
+            if pair.use_cage and (cage := pair.cage):
                 temp_cage = create_copy(cage, collections['cage'], copy_data=True)
             else:
                 temp_cage = create_copy(low_cp, collections['cage'], copy_data=True)
                 temp_cage.name = f"TEMP_CAGE_{low_cp.name}"
                 bake_extrusion = pair.bake_extrusion * relative_extrusion_dist(low_obj)
-                # print(f"Baking cage for {pair.lowpoly} with ray distance: {bake_extrusion}")
+                # print(f"Baking cage for {pair.lowpoly.name} with ray distance: {bake_extrusion}")
                 add_split_extrude_mod(temp_cage, bake_extrusion)
 
             # Convert cage to mesh
@@ -674,9 +674,9 @@ class CB_OT_BakeExecute(bpy.types.Operator):
             collections['high'].children.link(hi_subcoll)
 
             # Process highpoly objects
-            source = (bpy.data.collections[pair.highpoly].objects
+            source = (pair.highpoly_group.objects
                      if pair.hp_type == "GROUP"
-                     else [bpy.data.objects[pair.highpoly]])
+                     else [pair.highpoly])
 
             hi_objs = []
             for obj in source:
@@ -897,35 +897,31 @@ class CB_OT_BakeExecute(bpy.types.Operator):
         for bj in bake_settings.bake_job_queue:
             active_pair = [pair for pair in bj.bake_pairs_list if pair.activated]
             for pair in active_pair:
-                if pair.highpoly != "":
-                    if pair.hp_type == "GROUP":
-                        for obj in bpy.data.collections[pair.highpoly].objects:
+                if pair.hp_type == "GROUP":
+                    if pair.highpoly_group is not None:
+                        for obj in pair.highpoly_group.objects:
                             if obj.type == 'EMPTY' and obj.instance_collection:
                                 continue
                             self.assign_pink_mat(obj)
                     else:
-                        hipolyObj = bpy.data.objects.get(pair.highpoly)
-                        if not hipolyObj:
-                            print("No highpoly " + pair.highpoly + " object on scene found! Cancelling")
-                            pair.activated = False
-                            continue
+                        print("No highpoly collection defined. Disabling pair")
+                        pair.activated = False
+                        continue
+                else:
+                    if pair.highpoly is not None:
+                        hipolyObj = pair.highpoly
                         if hipolyObj.type == 'EMPTY' and hipolyObj.instance_collection:
                             emptyMatInGroup = self.checkEmptyMaterialForGroup(hipolyObj, context)
-
                         self.assign_pink_mat(hipolyObj)
-                else:  # if highpoly empty
-                    print("No highpoly defined. Disabling pair")
+                    else:  # if highpoly empty
+                        print("No highpoly defined. Disabling pair")
+                        pair.activated = False
+                        continue
+                if not pair.lowpoly:  # if lowpoly empty
+                    print("No lowpoly defined. Disabling pair")
                     pair.activated = False
                     continue
-                if pair.lowpoly == "":  # if lowpoly empty
-                    print("No highpoly defined. Disabling pair")
-                    pair.activated = False
-                    continue
-                low = bpy.data.objects.get(pair.lowpoly)
-                if not low:
-                    print("No lowpoly " + pair.lowpoly + " object on scene found! Disabling pair")
-                    pair.activated = False
-                    continue
+                low = pair.lowpoly
 
 
     checked_groups = []
@@ -994,11 +990,14 @@ class CB_OT_BakeExecute(bpy.types.Operator):
 
             any_pair_is_active = False
             for pair in bj.bake_pairs_list:  # disable hipoly lowpoly pairs that are not defined
-                if not pair.lowpoly or not bpy.data.objects.get(pair.lowpoly):
-                    self.report({'INFO'}, 'Lowpoly not found ' + pair.lowpoly)
+                if not pair.lowpoly:
+                    self.report({'INFO'}, 'Lowpoly not set')
                     pair.activated = False
-                if not pair.highpoly or (pair.hp_type=="OBJ" and  not bpy.data.objects.get(pair.highpoly)) or (pair.hp_type=="GROUP" and  not bpy.data.collections.get(pair.highpoly)):
-                    self.report({'INFO'}, 'highpoly not found ' + pair.highpoly)
+                if pair.hp_type == "OBJ" and not pair.highpoly:
+                    self.report({'INFO'}, 'Highpoly not set')
+                    pair.activated = False
+                if pair.hp_type == "GROUP" and not pair.highpoly_group:
+                    self.report({'INFO'}, 'Highpoly collection not set')
                     pair.activated = False
                 if pair.activated:
                     any_pair_is_active = True
@@ -1218,7 +1217,7 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
         for i, pair in enumerate(active_pairs):
             # Process lowpoly
             if self.pass_type == "DEPTH":
-                low_obj = bpy.data.objects[pair.lowpoly]
+                low_obj = pair.lowpoly
                 # low_cp = create_copy(low_obj, collections['low'])
                 collections['low'].objects.link(low_obj)
             # TODO: handle position?
@@ -1230,12 +1229,13 @@ class CB_OT_PreviewPassOps(bpy.types.Operator):
             collections['high'].children.link(hi_subcoll)
 
             if pair.hp_type == "GROUP":
-                hi_collection = bpy.data.collections.get(pair.highpoly)
-                for obj in hi_collection.objects:
-                    create_copy(obj, hi_subcoll)
+                hi_collection = pair.highpoly_group
+                if hi_collection:
+                    for obj in hi_collection.objects:
+                        create_copy(obj, hi_subcoll)
             else:  # pair.hp_type == "OBJ"
-                hi_poly_obj = bpy.data.objects[pair.highpoly]
-                create_copy(hi_poly_obj, hi_subcoll)
+                if pair.highpoly:
+                    create_copy(pair.highpoly, hi_subcoll)
 
         # Create proxy objects
         for name, collection in collections.items():
