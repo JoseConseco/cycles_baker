@@ -323,7 +323,7 @@ def draw_prefs(layout, self):
 class CyclesBakerPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
-    DIFFUSE: bpy.props.StringProperty(name="Mat ID", description="", default='id')
+    DIFFUSE: bpy.props.StringProperty(name="Mat ID", description="", default='diffuse')
     AO: bpy.props.StringProperty(name="AO", description="", default='ao')
     NORMAL: bpy.props.StringProperty(name="Normal", description="", default="nrm")
     DEPTH: bpy.props.StringProperty(name="Depth map", description="", default="depth")
