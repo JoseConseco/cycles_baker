@@ -321,7 +321,7 @@ shader_info.fragment_source("""
 // out vec4 FragColor;
 
 vec4 blend_premultiplied(vec4 imgA, vec4 imgB){
-  vec4 out_img = vec4(imgA.rgb * imgA.a, imgA.a) + (1.-imgA.a)*vec4(imgB.rgb * imgB.a, imgB.a); //* pretultiplied ver
+  vec4 out_img = vec4(imgA.rgb * imgA.a, imgA.a) + (1.-imgA.a)*vec4(imgB.rgb * imgB.a, imgB.a); // pretultiplied ver
   out_img.rgb = out_img.rgb / out_img.a;
   return out_img;
 }
