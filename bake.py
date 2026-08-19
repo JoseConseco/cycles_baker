@@ -72,6 +72,14 @@ def add_collection_to_mesh_mod(obj, coll):
     # coll_to_mesh.properties.inputs['Socket_3']['value'] = material
     return coll_to_mesh
 
+def uv_shuffle_for_bake(obj, active_uv):
+    # output active UV to new 'MD_TEMP_UV' for baking
+    coll_to_mesh = add_geonodes_mod(obj, "UV Shuffle", "CB_UV_Shuffle")
+    #  'Socket_2' > 'Collection'
+    coll_to_mesh.properties.inputs['Socket_2']['value'] = active_uv.name  # Input UV name
+    coll_to_mesh.properties.inputs['Socket_3']['value'] = 'MD_TEMP_UV'      # Output UV Name
+    return coll_to_mesh
+
 def get_ao_mod(obj):
     return obj.modifiers.get("AO CBaker")
 
@@ -651,7 +659,12 @@ class CB_OT_BakeExecute(bpy.types.Operator):
 
             # Process lowpoly
             low_obj = pair.lowpoly
+            low_obj['active_uv_index'] = low_obj.data.uv_layers.active_index
             low_cp = create_copy(low_obj, collections['low'])
+
+            # uv_shuffle_for_bake(low_cp, low_obj.data.uv_layers.active) # not needed after all
+            low_cp.data.uv_layers.new(name='MD_TEMP_UV') # it will auto use active UVs
+            low_cp.data.uv_layers.active = low_cp.data.uv_layers['MD_TEMP_UV']
             positions.append(low_obj.evaluated_get(deps).matrix_world.translation)
 
             # Process cage
@@ -700,8 +713,8 @@ class CB_OT_BakeExecute(bpy.types.Operator):
             mesh = bpy.data.meshes.new(f"Tmp_{name}_MD_TMP")
             if name == 'low':   # lowpoly has to have at least one quad - or else it will not bake
                 mesh.from_pydata([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [], [(0, 1, 2), (2, 3, 0)])
-                # and placeholder uvs
-                mesh.uv_layers.new(name="UVMap")
+                # and placeholder uvs - but more important is low_cp - temp uv creation from acitve
+                mesh.uv_layers.new(name="MD_TEMP_UV") # all low objs use UV_Shuffle that will write active uv -> to MD_TEMP_UV
             proxy = bpy.data.objects.new(f"{name.capitalize()}Proxy_MD_TMP", mesh)
             proxy['tmp'] = True
             temp_scn.collection.objects.link(proxy)
@@ -709,7 +722,7 @@ class CB_OT_BakeExecute(bpy.types.Operator):
 
             layer_collection = context.view_layer.layer_collection.children.get(collection.name)
             layer_collection.hide_viewport = True  # This controls the 'eye' icon in the outliner
-
+        dupa
         return temp_scn
 
 
@@ -871,6 +884,16 @@ class CB_OT_BakeExecute(bpy.types.Operator):
         attrib_mat = bpy.data.materials.get("CBaker_AttribMaterial")
         if attrib_mat:
             bpy.data.materials.remove(attrib_mat, do_unlink=True)
+
+        for obj in bpy.data.objects:
+            # find low objs with temp uv
+            if obj.type == 'MESH':
+                backup_uv_idx = obj.get('active_uv_index')
+                if backup_uv_idx is not None:
+                    obj.data.uv_layers.active_index = backup_uv_idx
+                temp_uv = obj.data.uv_layers.get('MD_TEMP_UV')
+                if temp_uv:
+                    obj.data.uv_layers.remove(temp_uv)
 
         bpy.data.scenes.remove(tmp_scn)
 
