@@ -56,20 +56,20 @@ node_groups_to_remove = [ "CB_AOPass", "CB_DepthPass", "CB_PositionPass", "CB_Cu
 def add_split_extrude_mod(obj, displace_val):
     gn_displce = add_geonodes_mod(obj, "Cage CBaker", "CycBaker_SplitExtrude")
     #  'Socket_2' > 'Offset'
-    gn_displce['Socket_2'] = displace_val  # set extrusion distance
+    gn_displce.properties.inputs['Socket_2']['value'] = displace_val  # set extrusion distance
     return gn_displce
 
 def add_translate_instance_mod(obj, offset_val):
     gn_displce = add_geonodes_mod(obj, "TranslateInstance", "CB_TranslateInstance")
     #  'Socket_2' > 'Offset'
-    gn_displce['Socket_2'] = offset_val  # set extrusion distance
+    gn_displce.properties.inputs['Socket_2']['value'] = offset_val  # set extrusion distance
     return gn_displce
 
 def add_collection_to_mesh_mod(obj, coll):
     coll_to_mesh = add_geonodes_mod(obj, "Collection To Mesh CBaker", "CB_CollectionToMesh")
     #  'Socket_2' > 'Collection'
-    coll_to_mesh['Socket_2'] = coll  # set collection name
-    # coll_to_mesh['Socket_3'] = material
+    coll_to_mesh.properties.inputs['Socket_2']['value'] = coll  # set collection name
+    # coll_to_mesh.properties.inputs['Socket_3']['value'] = material
     return coll_to_mesh
 
 def get_ao_mod(obj):
@@ -92,14 +92,14 @@ def set_ao_mod(obj, pass_settings):
     if not ao_mod:
         ao_mod = add_geonodes_mod(obj, "AO CBaker", "CB_AOPass")
     # Set AO modifier properties from pass settings
-    ao_mod['Input_16'] = pass_settings.gn_ao_flip_normals        # Flip Normals
-    ao_mod['Input_3'] = pass_settings.gn_ao_samples              # Samples
-    ao_mod['Input_4'] = pass_settings.gn_ao_spread_angle         # Spread Angle
-    ao_mod['Socket_1'] = int(pass_settings.gn_ao_environment)         # Environment Mode
-    ao_mod['Input_8'] = pass_settings.gn_ao_blur_steps          # Blur Steps
-    ao_mod['Input_10'] = pass_settings.gn_ao_use_additional_mesh # Use Additional Mesh
-    ao_mod['Input_11'] = pass_settings.gn_ao_extra_object       # Extra Object
-    ao_mod['Socket_0'] = pass_settings.gn_ao_max_ray_dist       # Max Ray Dist
+    ao_mod.properties.inputs['Input_16']['value'] = pass_settings.gn_ao_flip_normals        # Flip Normals
+    ao_mod.properties.inputs['Input_3']['value'] = pass_settings.gn_ao_samples              # Samples
+    ao_mod.properties.inputs['Input_4']['value'] = pass_settings.gn_ao_spread_angle         # Spread Angle
+    ao_mod.properties.inputs['Socket_1']['value'] = int(pass_settings.gn_ao_environment)         # Environment Mode
+    ao_mod.properties.inputs['Input_8']['value'] = pass_settings.gn_ao_blur_steps          # Blur Steps
+    ao_mod.properties.inputs['Input_10']['value'] = pass_settings.gn_ao_use_additional_mesh # Use Additional Mesh
+    ao_mod.properties.inputs['Input_11']['value'] = pass_settings.gn_ao_extra_object       # Extra Object
+    ao_mod.properties.inputs['Socket_0']['value'] = pass_settings.gn_ao_max_ray_dist       # Max Ray Dist
     obj.modifiers.update()  # Update modifier to apply changes
     obj.update_tag()
     # obj.data.update()
@@ -112,9 +112,9 @@ def set_depth_mod(obj, ref_obj, pass_settings):
     depth_mod = get_depth_mod(obj)
     if not depth_mod:
         depth_mod = add_geonodes_mod(obj, "Depth CBaker", "CB_DepthPass")
-    depth_mod['Socket_2'] = ref_obj                          # Object for Distance
-    depth_mod['Socket_3'] = pass_settings.depth_low_offset   # Low Offset
-    depth_mod['Socket_4'] = pass_settings.depth_high_offset  # High Offset
+    depth_mod.properties.inputs['Socket_2']['value'] = ref_obj                          # Object for Distance
+    depth_mod.properties.inputs['Socket_3']['value'] = pass_settings.depth_low_offset   # Low Offset
+    depth_mod.properties.inputs['Socket_4']['value'] = pass_settings.depth_high_offset  # High Offset
     obj.modifiers.update()  # Update modifier to apply changes
     obj.update_tag()
     return depth_mod
@@ -124,7 +124,7 @@ def set_position_mod(obj, loc_helper_obj):
     pos_mod = get_position_mod(obj)
     if not pos_mod:
         pos_mod = add_geonodes_mod(obj, "Position CBaker", "CB_PositionPass")
-    pos_mod['Socket_2'] = loc_helper_obj                          # Object for Distance
+    pos_mod.properties.inputs['Socket_2']['value'] = loc_helper_obj                          # Object for Distance
     obj.modifiers.update()  # Update modifier to apply changes
     obj.update_tag()
     return pos_mod
@@ -133,10 +133,10 @@ def set_curvature_mod(obj, pass_settings):
     curvature_mod = get_curvature_mod(obj)
     if not curvature_mod:
         curvature_mod = add_geonodes_mod(obj, "Curvature CBaker", "CB_CurvaturePass")
-    curvature_mod['Socket_4'] = int(pass_settings.curvature_mode)     # Menu (Smooth/Sharp)
-    curvature_mod['Socket_2'] = pass_settings.curvature_contrast # Contrast
-    curvature_mod['Socket_6'] = pass_settings.curvature_brightness # Brightness
-    curvature_mod['Socket_3'] = pass_settings.curvature_blur     # Blur
+    curvature_mod.properties.inputs['Socket_4']['value'] = int(pass_settings.curvature_mode)     # Menu (Smooth/Sharp)
+    curvature_mod.properties.inputs['Socket_2']['value'] = pass_settings.curvature_contrast # Contrast
+    curvature_mod.properties.inputs['Socket_6']['value'] = pass_settings.curvature_brightness # Brightness
+    curvature_mod.properties.inputs['Socket_3']['value'] = pass_settings.curvature_blur     # Blur
     obj.modifiers.update()  # Update modifier to apply changes
     obj.update_tag()
     return curvature_mod
@@ -145,8 +145,8 @@ def set_random_mod(obj, pass_settings):
     random_mod = get_random_mod(obj)
     if not random_mod:
         random_mod = add_geonodes_mod(obj, "Random CBaker", "CB_RandomPass")
-    random_mod['Socket_3'] = pass_settings.random_use_rgb  # RGB colors
-    random_mod['Socket_4'] = pass_settings.random_seed  # RGB colors
+    random_mod.properties.inputs['Socket_3']['value'] = pass_settings.random_use_rgb  # RGB colors
+    random_mod.properties.inputs['Socket_4']['value'] = pass_settings.random_seed  # RGB colors
     obj.modifiers.update()  # Update modifier to apply changes
     obj.update_tag()
     return random_mod
