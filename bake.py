@@ -722,7 +722,7 @@ class CB_OT_BakeExecute(bpy.types.Operator):
 
             layer_collection = context.view_layer.layer_collection.children.get(collection.name)
             layer_collection.hide_viewport = True  # This controls the 'eye' icon in the outliner
-        dupa
+        # dupa
         return temp_scn
 
 
