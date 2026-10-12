@@ -297,6 +297,7 @@ def draw_prefs(layout, self):
         col.prop(self, "RANDOM")
         # col.prop(self, "COMBINED")
         col.prop(self, "OPACITY")
+        col.prop(self, "EMISSION")
 
     elif self.tabs == "UPDATE":
         col = box.column()
@@ -331,6 +332,7 @@ class CyclesBakerPreferences(bpy.types.AddonPreferences):
     CURVATURE: bpy.props.StringProperty(name="Curvature map", description="", default="curvature")
     RANDOM: bpy.props.StringProperty(name="Random Color map", description="", default="random")
     OPACITY: bpy.props.StringProperty(name="Opacity map", description="", default="opacity")
+    EMISSION: bpy.props.StringProperty(name="Emission map", description="", default="emission")
     COMBINED: bpy.props.StringProperty(name="Combined map", description="", default="combined")
 
     tabs: bpy.props.EnumProperty(name="Tabs", items=[("UPDATE", "Update", ""),
@@ -395,6 +397,7 @@ class CB_OT_SDAddPassOp(bpy.types.Operator):
                                       ("AO_GN", "Ambient Occlusion (GeoNodes)", ""),
                                       ("NORMAL", "Normal", ""),
                                       ("OPACITY", "Opacity mask", ""),
+                                      ("EMISSION", "Emission", ""),
                                       ("DEPTH", "Depth (GeoNodes)", ""),
                                       ("POSITION", "Position (GeoNodes)", ""),
                                       ("CURVATURE", "Curvature (GeoNodes)", ""),
@@ -640,6 +643,15 @@ class CB_OT_CyclesTexturePreview(bpy.types.Operator):
                 else:
                     links.new(imgNormalNode.outputs[0], normalMapNode.inputs[1])
                     links.new(normalMapNode.outputs[0], principledNode.inputs['Normal'])
+
+            elif bakepass.pass_type == "EMISSION":
+                imgEmitNode = mat_ntree.nodes.new('ShaderNodeTexImage')
+                imgEmitNode.name = bakepass.get_pass_suffix()
+                imgEmitNode.label = bakepass.get_pass_suffix()
+                imgEmitNode.location = offset_x, y_pos
+                imgEmitNode.image = bakeImg
+                links.new(imgEmitNode.outputs[0], principledNode.inputs['Emission Color'])
+                principledNode.inputs['Emission Strength'].default_value = 1.0
 
             elif bakepass.pass_type == "OPACITY":
                 imgOpacityNode = mat_ntree.nodes.new('ShaderNodeTexImage')

@@ -180,6 +180,7 @@ BG_color = {
     "AO_GN": np.array([1.0, 1.0, 1.0, 1.0]),
     "DIFFUSE": np.array([0.0, 0.0, 0.0, 0.0]),
     "OPACITY": np.array([0.0, 0.0, 0.0, 0.0]),
+    "EMISSION": np.array([0.0, 0.0, 0.0, 1.0]),
     "DEPTH": np.array([0.0, 0.0, 0.0, 1.0]),
     "POSITION": np.array([0.0, 0.0, 0.0, 1.0]),
     "CURVATURE": np.array([0.5, 0.5, 0.5, 1.0]),
@@ -798,7 +799,7 @@ class CB_OT_BakeExecute(bpy.types.Operator):
             pass_type = 'DIFFUSE'
             pass_components = {'COLOR'}
 
-        elif bakepass.pass_type == "OPACITY":
+        elif bakepass.pass_type in ("OPACITY", "EMISSION"):
             pass_type = 'EMIT'
         elif bakepass.pass_type == 'COMBINED':
             pass_components = {'AO', 'EMIT', 'DIRECT', 'INDIRECT', 'COLOR', 'DIFFUSE', 'GLOSSY'}
