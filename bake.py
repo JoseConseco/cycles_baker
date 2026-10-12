@@ -687,18 +687,18 @@ class CB_OT_BakeExecute(bpy.types.Operator):
             collections['high'].children.link(hi_subcoll)
 
             # Process highpoly objects
-            source = (pair.highpoly_group.objects
+            high_src = (pair.highpoly_group.objects
                      if pair.hp_type == "GROUP"
                      else [pair.highpoly])
 
             hi_objs = []
-            for obj in source:
+            for obj in high_src:
                 cp = create_copy(obj, hi_subcoll)
                 hi_objs.append(cp)
                 positions.append(obj.evaluated_get(deps).matrix_world.translation)
 
             # Apply offset from average position
-            avg_pos = sum(positions, Vector((0,0,0))) / len(positions)
+            avg_pos = sum(positions +[low_cp.evaluated_get(deps).matrix_world.translation,], Vector((0,0,0))) / (len(positions) + 1)
             translation = offset - avg_pos
             for obj in [low_cp, temp_cage] + hi_objs:
                 if obj.type in {'MESH', 'CURVE', 'CURVES'}:
